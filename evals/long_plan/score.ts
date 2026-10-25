@@ -1,0 +1,130 @@
+import * as history from "./history";
+import * as plan from "./plan";
+import type { History } from "./history";
+import type { State } from "./plan";
+
+export type Check =
+  | { name: string; kind: "same_episode" | "different_episode" | "same_goal"; a: number; b: number }
+  | {
+      name: string;
+      kind: "topic" | "subtitle";
+      event: number;
+      level: "goal" | "episode" | "step";
+      pattern: string;
+      at?: number;
+    }
+  | {
+      name: string;
+      kind: "state";
+      event: number;
+      level: "goal" | "episode" | "step";
+      state: plan.Node["state"];
+      at: number;
+    };
+export type Result = { name: string; pass: boolean; detail: string };
+export function ancestor(state: State, event: number, level: plan.Node["kind"]) {
+  const id = state.spans.find(s => s.from <= event && s.to >= event)?.node;
+  let node = state.nodes.find(n => n.id === id);
+  while (node && node.kind !== level) node = state.nodes.find(n => n.id === node!.parent);
+  return node;
+}
+export function score(data: History, snapshots: State[], checks: Check[]): Result[] {
+  const state = snapshots.at(-1) ?? plan.empty(),
+    tokens = plan.ledger(state, data);
+  const rootTotal = state.nodes
+    .filter(n => n.kind === "goal")
+    .reduce((n, root) => history.add(n, tokens.counts[root.id]), tokens.unattributed);
+  const result: Result[] = [
+    {
+      name: "complete replay",
+      pass: state.through === data.events.length,
+      detail: `${state.through}/${data.events.length} events`,
+    },
+    {
+      name: "token conservation",
+      pass: JSON.stringify(rootTotal) === JSON.stringify(tokens.observed),
+      detail: `${history.total(tokens.observed)} observed; ${history.total(tokens.unattributed)} unattributed`,
+    },
+  ];
+  const contradictory = snapshots.flatMap(snapshot =>
+    snapshot.nodes.filter(
+      node =>
+        node.state === "done" &&
+        snapshot.nodes.some(
+          child => child.parent === node.id && ["active", "planned", "blocked"].includes(child.state),
+        ),
+    ),
+  );
+  result.push({
+    name: "parent completion agrees with children",
+    pass: contradictory.length === 0,
+    detail: `${contradictory.length} completed parents with unfinished children`,
+  });
+  for (const check of checks) {
+    let pass = false,
+      detail = "";
+    switch (check.kind) {
+      case "same_episode":
+      case "different_episode":
+      case "same_goal": {
+        const level = check.kind === "same_goal" ? "goal" : "episode";
+        const a = ancestor(state, check.a, level),
+          b = ancestor(state, check.b, level);
+        pass = !!a && !!b && (check.kind === "different_episode" ? a.id !== b.id : a.id === b.id);
+        detail = `${a?.title ?? "unassigned"} / ${b?.title ?? "unassigned"}`;
+        break;
+      }
+      case "topic":
+      case "subtitle": {
+        const prefix = check.at === undefined ? state : snapshots.find(s => s.through >= check.at!);
+        const node = prefix && ancestor(prefix, check.event, check.level);
+        detail = (check.kind === "topic" ? node?.title : node?.subtitle) ?? "unassigned";
+        pass = !!node && new RegExp(check.pattern, "i").test(detail);
+        break;
+      }
+      case "state": {
+        const snapshot = snapshots.find(s => s.through >= check.at),
+          node = snapshot && ancestor(snapshot, check.event, check.level);
+        detail = `${node?.state ?? "unassigned"} at first checkpoint >= ${check.at}`;
+        pass = node?.state === check.state;
+        break;
+      }
+    }
+    result.push({ name: check.name, pass, detail });
+  }
+  return result;
+}
+export function metrics(data: History, snapshots: State[]) {
+  let oldTitles = 0,
+    changedTitles = 0,
+    closedRewrites = 0;
+  for (let i = 1; i < snapshots.length; i++) {
+    for (const before of snapshots[i - 1].nodes) {
+      const after = snapshots[i].nodes.find(n => n.id === before.id);
+      oldTitles++;
+      if (after?.title !== before.title) changedTitles++;
+      if (
+        ["done", "abandoned"].includes(before.state) &&
+        after &&
+        (after.title !== before.title || after.subtitle !== before.subtitle)
+      )
+        closedRewrites++;
+    }
+  }
+  const final = snapshots.at(-1) ?? plan.empty();
+  const tokens = plan.ledger(final, data);
+  return {
+    events: data.events.length,
+    tools: data.events.filter(e => e.kind === "tool").length,
+    goals: final.nodes.filter(n => n.kind === "goal").length,
+    episodes: final.nodes.filter(n => n.kind === "episode").length,
+    steps: final.nodes.filter(n => n.kind === "step").length,
+    title_changes: changedTitles,
+    title_opportunities: oldTitles,
+    closed_rewrites: closedRewrites,
+    attributed_token_fraction: history.total(tokens.observed)
+      ? Number(history.total(tokens.observed) - history.total(tokens.unattributed)) /
+        Number(history.total(tokens.observed))
+      : null,
+  };
+}

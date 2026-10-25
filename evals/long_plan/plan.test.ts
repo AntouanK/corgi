@@ -1,0 +1,289 @@
+import { expect, test } from "bun:test";
+import * as history from "./history";
+import * as plan from "./plan";
+import * as score from "./score";
+import type { Event } from "./history";
+
+const jsonl = (...rows: unknown[]) => rows.map(v => JSON.stringify(v)).join("\n");
+const events: Event[] = [
+  { id: 1, line: 1, at: "2026-10-21T00:00:00Z", turn: 1, kind: "user", text: "Repair branch history" },
+  { id: 2, line: 2, at: "2026-10-21T00:00:01Z", turn: 1, kind: "tool", text: "git rebase origin/main" },
+];
+const nodes: plan.Node[] = [
+  {
+    id: "g",
+    parent: null,
+    kind: "goal",
+    title: "Land CI changes",
+    subtitle: "Keep Linux and macOS independent",
+    state: "active",
+    evidence: [1],
+  },
+  {
+    id: "e",
+    parent: "g",
+    kind: "episode",
+    title: "Repair branch history",
+    subtitle: "Keep only CI changes above main",
+    state: "active",
+    evidence: [2],
+  },
+  {
+    id: "s",
+    parent: "e",
+    kind: "step",
+    title: "Rebase CI branch",
+    subtitle: "Replay the branch onto upstream main",
+    state: "active",
+    evidence: [2],
+  },
+];
+const patch = { nodes, spans: [{ from: 1, to: 2, node: "s" }] };
+const state = () => plan.apply(plan.empty(), JSON.stringify(patch), events).state;
+
+test("Claude repeated message blocks and streaming usage count once; cache creation belongs to input", () => {
+  const row = (output: number) => ({
+    type: "assistant",
+    uuid: "u",
+    message: {
+      id: "m",
+      content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "git status" } }],
+      usage: {
+        input_tokens: 3,
+        cache_read_input_tokens: 20,
+        cache_creation_input_tokens: 7,
+        output_tokens: output,
+        output_tokens_details: { thinking_tokens: 4 },
+      },
+    },
+  });
+  const data = history.decode(jsonl(row(5), row(9), row(9)), "claude");
+  expect(data.events).toHaveLength(1);
+  expect(data.receipts.reduce((n, r) => history.add(n, r.tokens), history.zero())).toEqual({
+    input: "30",
+    cached: "20",
+    output: "9",
+  });
+});
+
+test("Codex response receipts exclude the duplicate token_count transport and reasoning subtotal", () => {
+  const usage = { input_tokens: 100, cached_input_tokens: 80, output_tokens: 20, reasoning_output_tokens: 10 };
+  const data = history.decode(
+    jsonl(
+      {
+        type: "response_item",
+        payload: { type: "function_call", call_id: "t", name: "exec", arguments: "git rebase" },
+      },
+      { type: "token_usage_record", payload: { response_id: "r", usage } },
+      { type: "token_usage_record", payload: { response_id: "r", usage } },
+      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: usage } } },
+    ),
+    "codex",
+  );
+  expect(data.receipts).toHaveLength(1);
+  expect(history.total(data.receipts[0].tokens)).toBe(120n);
+});
+
+test("usage before a generating action remains unassigned", () => {
+  const data = history.decode(
+    jsonl({ type: "token_usage_record", payload: { response_id: "r", usage: { input_tokens: 10, output_tokens: 5 } } }),
+    "codex",
+  );
+  expect(data.receipts[0].event).toBeNull();
+  expect(plan.ledger(plan.empty(), data, 0).known).toBe(false);
+  expect(plan.ledger(plan.empty(), data, 1).known).toBe(true);
+});
+
+test("large counters use decimal bigint strings and unsafe JSON numbers fail", () => {
+  const row = (input: string | number) => ({
+    type: "token_usage_record",
+    payload: { response_id: "r", usage: { input_tokens: input, output_tokens: "1" } },
+  });
+  expect(history.decode(jsonl(row("9007199254740993")), "codex").receipts[0].tokens.input).toBe("9007199254740993");
+  expect(() => history.decode(jsonl(row(9007199254740993)), "codex")).toThrow("InvalidTokenCount");
+});
+
+test("legacy Codex counters exclude pre-existing history and repeated totals", () => {
+  const record = (input: number, last: number) => ({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: { input_tokens: input, output_tokens: 0 },
+        last_token_usage: { input_tokens: last, output_tokens: 0 },
+      },
+    },
+  });
+  const data = history.decode(jsonl(record(1000, 100), record(1000, 100), record(1200, 200)), "codex");
+  expect(data.receipts.reduce((n, r) => n + history.total(r.tokens), 0n)).toBe(300n);
+  expect(data.warnings.some(w => w.startsWith("Partial opening"))).toBe(true);
+});
+
+test("Claude usage arriving before a tool attaches to that response once observed", () => {
+  const usage = { input_tokens: 100, output_tokens: 5 };
+  const data = history.decode(
+    jsonl(
+      { type: "assistant", message: { id: "m", content: [{ type: "thinking" }], usage } },
+      {
+        type: "assistant",
+        message: {
+          id: "m",
+          content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "git rebase" } }],
+          usage,
+        },
+      },
+    ),
+    "claude",
+  );
+  expect(data.receipts).toHaveLength(1);
+  expect(data.receipts[0].event).toBe(1);
+  expect(history.total(plan.ledger(plan.empty(), data, 1).unattributed)).toBe(105n);
+});
+
+test("source line numbers survive blank JSONL lines", () => {
+  const data = history.decode(
+    "\n" + jsonl({ type: "user", uuid: "u", message: { content: "Fix the tests" } }),
+    "claude",
+  );
+  expect(data.events[0].line).toBe(2);
+});
+
+test("a delayed cached-input subtotal is retained without charging extra tokens", () => {
+  const receipt = (cached: number) => ({
+    type: "token_usage_record",
+    payload: { response_id: "r", usage: { input_tokens: 100, cached_input_tokens: cached, output_tokens: 20 } },
+  });
+  const data = history.decode(jsonl(receipt(0), receipt(80)), "codex");
+  const sum = data.receipts.reduce((n, r) => history.add(n, r.tokens), history.zero());
+  expect(sum).toEqual({ input: "100", cached: "80", output: "20" });
+  expect(history.total(sum)).toBe(120n);
+});
+
+test("explicit plans are signals, and encrypted reasoning is not fabricated", () => {
+  const data = history.decode(
+    jsonl(
+      {
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "p",
+          name: "update_plan",
+          arguments: '{"plan":[{"step":"Run tests","status":"pending"}]}',
+        },
+      },
+      { type: "response_item", payload: { type: "reasoning", encrypted_content: "opaque" } },
+    ),
+    "codex",
+  );
+  expect(data.events.map(e => e.kind)).toEqual(["plan"]);
+});
+
+test("task notices and compaction summaries do not become user goals", () => {
+  const data = history.decode(
+    jsonl(
+      { type: "user", uuid: "a", message: { content: "<task-notification>build failed</task-notification>" } },
+      { type: "user", uuid: "b", message: { content: "This session is being continued from a previous conversation" } },
+      { type: "user", uuid: "c", message: { content: "Fix the CI build" } },
+    ),
+    "claude",
+  );
+  expect(data.events.map(e => [e.kind, e.turn])).toEqual([
+    ["lifecycle", 0],
+    ["lifecycle", 0],
+    ["user", 1],
+  ]);
+});
+
+test("a patch cannot cite future evidence, move history, skip coverage or assign planned work", () => {
+  const before = state(),
+    saved = structuredClone(before),
+    next = [{ ...events[1], id: 3, line: 3 }];
+  const change = (node: plan.Node, spans = [{ from: 3, to: 3, node: "s" }]) =>
+    plan.apply(before, JSON.stringify({ nodes: [node], spans }), next);
+  expect(() => change({ ...nodes[2], evidence: [4] })).toThrow("InvalidEvidence");
+  expect(() => change({ ...nodes[2], parent: "g" })).toThrow("MovedHistory");
+  expect(() => change({ ...nodes[2], state: "planned" })).toThrow("InvalidAssignment");
+  expect(() => change(nodes[2], [{ from: 4, to: 4, node: "s" }])).toThrow("InvalidCoverage");
+  expect(before).toEqual(saved);
+});
+
+test("hierarchy cannot contain cycles or skip a level", () => {
+  expect(() =>
+    plan.apply(
+      plan.empty(),
+      JSON.stringify({ ...patch, nodes: [{ ...nodes[0], parent: "s" }, ...nodes.slice(1)] }),
+      events,
+    ),
+  ).toThrow("InvalidHierarchy");
+  expect(() =>
+    plan.apply(plan.empty(), JSON.stringify({ ...patch, nodes: [nodes[0], { ...nodes[2], parent: "g" }] }), events),
+  ).toThrow("InvalidHierarchy");
+});
+
+test("tokens roll up without adding cache reads twice, and respect observation time", () => {
+  const data: history.History = {
+    source: "test",
+    provider: "codex",
+    sha256: "test",
+    warnings: [],
+    events,
+    receipts: [
+      { id: "r", event: 2, line: 2, tokens: { input: "100", cached: "80", output: "20" } },
+      { id: "missing", event: null, line: 3, tokens: { input: "50", cached: "0", output: "5" } },
+    ],
+  };
+  const s = state(),
+    all = plan.ledger(s, data),
+    prefix = plan.ledger(s, data, 2);
+  expect(history.total(all.counts.g)).toBe(120n);
+  expect(history.total(all.counts.e)).toBe(120n);
+  expect(history.total(all.observed)).toBe(175n);
+  expect(history.total(all.unattributed)).toBe(55n);
+  expect(history.total(prefix.observed)).toBe(120n);
+  expect(score.score(data, [s], []).every(c => c.pass)).toBe(true);
+});
+
+test("scorer requires both anchors; two unassigned events never pass same episode", () => {
+  const data: history.History = {
+    source: "test",
+    provider: "codex",
+    sha256: "test",
+    warnings: [],
+    events,
+    receipts: [],
+  };
+  const results = score.score(data, [], [{ name: "same", kind: "same_episode", a: 1, b: 2 }]);
+  expect(results.find(r => r.name === "same")?.pass).toBe(false);
+});
+
+test("batching cuts before user steering and does not see the next prefix", () => {
+  const more = [...events, { ...events[0], id: 3, line: 3, turn: 2 }];
+  expect(plan.batches(more, 24).map(b => b.map(e => e.id))).toEqual([[1, 2], [3]]);
+  expect(() => plan.batches(more, 0)).toThrow("InvalidBatchSize");
+});
+
+test("a correct final title cannot rescue a missed recognition deadline", () => {
+  const before = state();
+  before.nodes[1] = { ...before.nodes[1], title: "Inspect repository files" };
+  const after = plan.apply(before, JSON.stringify({ nodes: [nodes[1]], spans: [{ from: 3, to: 3, node: "s" }] }), [
+    { ...events[1], id: 3, line: 3 },
+  ]).state;
+  const data: history.History = {
+    source: "test",
+    provider: "codex",
+    sha256: "test",
+    warnings: [],
+    events: [...events, { ...events[1], id: 3, line: 3 }],
+    receipts: [],
+  };
+  const checks = score.score(
+    data,
+    [before, after],
+    [
+      { name: "early", kind: "topic", event: 2, at: 2, level: "episode", pattern: "branch" },
+      { name: "final", kind: "topic", event: 2, level: "episode", pattern: "branch" },
+    ],
+  );
+  expect(checks.find(c => c.name === "early")?.pass).toBe(false);
+  expect(checks.find(c => c.name === "final")?.pass).toBe(true);
+});
