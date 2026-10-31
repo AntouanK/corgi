@@ -61,6 +61,7 @@ test.each(["corgi", "animal_style"] as const)(
       expect(planView.tail(view, planView.capacity(rect)).rows.map(r => r.depth)).toEqual([0, 1]);
       expect(screen.split("\n")[rect.y + 4]).toContain("▶   Correct retry offsets");
       expect(screen.split("\n")[rect.y + 5]).toContain("! Run resume tests");
+      expect(screen.split("\n")[rect.y + 6]).toContain("Resume repeats the header");
       expect(screen.split("\n").find(line => line.includes("Correct retry offsets"))).not.toContain("!");
       expect(screen).toContain("! Run resume tests");
       expect(screen).not.toContain("✓");
@@ -85,6 +86,33 @@ test("a short terminal retains a close instruction; long labels stay inside the 
     planView.draw(writer, planView.geometry(35, 10), "Agent", fixture());
     terminal.feed(writer.buffered());
     expect(terminal.text()).toContain("Esc to close");
+  } finally {
+    terminal.destroy();
+  }
+});
+
+test("a short tail keeps a setback, its explanation and episode together", () => {
+  const view = fixture(),
+    rect = planView.geometry(100, 12),
+    terminal = new Terminal(100, 12);
+  view.nodes.push({
+    ...view.nodes[2],
+    id: "s2",
+    title: "Retry resume tests",
+    bump: { ...view.nodes[2].bump!, state: "resolved" },
+  });
+  try {
+    const out = new Writer();
+    planView.draw(out, rect, "Agent", view);
+    terminal.feed(out.buffered());
+    const lines = terminal.text().split("\n");
+    expect(planView.tail(view, planView.capacity(rect)).rows.map(r => r.node.id)).toEqual(["e", "s2"]);
+    expect(lines[rect.y + 4]).toContain("Correct retry offsets (continued)");
+    expect(lines[rect.y + 5]).toContain("! Retry resume tests");
+    expect(lines[rect.y + 6]).toContain("Resolved · Resume repeats the header");
+    expect(lines[rect.y + 8]).toContain("Total");
+    expect(lines[rect.y + 9]).toContain("Esc close");
+    expect(terminal.text()).not.toContain("! Run resume tests");
   } finally {
     terminal.destroy();
   }

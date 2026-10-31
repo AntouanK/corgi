@@ -55,7 +55,8 @@ saved mode. Older viewers ignore the optional plan.
 A step may carry a classified setback: verification, conflict, environment,
 permission, or approach. **!** marks a problem only on the affected step;
 it never propagates to parents.
-Resolved problems keep a dimmed **!**.
+A setback adds one explanation line beneath its step. Resolved problems keep a
+dimmed **!** and a resolved label; the explanation remains visible.
 A green **▶** means running. Completed work is dimmed; future work is labeled
 planned. Available tool-call counts and cached input remain visible.
 An approach setback means rework caused by a disproved committed approach,
@@ -86,7 +87,8 @@ bun evals/long_plan/preview.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 `preview.ts` builds `.lavish/long-plan-integrated.html` using the actual
 `src/plan_view.ts` renderer and Corgi palette. It includes recorded failures and
 checkpoint controls. “Long example” selects the real rebase replay in an 18-row
-terminal, showing the last nine of its 16 episode/step rows with parent context.
+terminal. The tail fits whole steps and their setback explanations, retaining
+parent context; ordinary steps still occupy one line.
 The height control demonstrates shorter and taller terminals. An earlier-item
 count shows omitted history; the totals still include it. The older `view.ts` remains the original
 design study.
@@ -151,7 +153,7 @@ The earlier pilot below remains historical context, not the current scorecard.
 
 ## Product contract
 
-The tree displays two levels, one line per item. The **goal**, the user's outcome
+The tree displays two levels, one line per item except for setback explanations. The **goal**, the user's outcome
 retained across turns and compactions, stays in the header as context.
 
 - **Episode:** one coherent subproblem, such as repairing branch history or
@@ -175,6 +177,7 @@ Only explicitly announced future work becomes a planned step, with no tokens yet
 Steps use one indentation level. Rows align tokens, tool calls and cached input
 in columns; narrow terminals prioritize names and tokens. The view follows the
 latest rows, retaining the parent episode when the tail cuts into its steps.
+A setback and its explanation stay together when fitting the available lines.
 There is no selection, scrolling or detail pane. The footer totals cover all
 observed work, not just the visible tail. Replay controls belong to the eval,
 not to the live product. The planner retains goal

@@ -12,6 +12,7 @@ export class State {
   }
 }
 type Row = { node: Node; depth: number; continued?: boolean };
+const rowHeight = (row: Row) => (row.node.bump ? 2 : 1);
 export function tail(view: roadmap.Snapshot, count: number) {
   const all: Row[] = [];
   for (const goal of view.nodes.filter(n => n.kind === "goal")) {
@@ -20,11 +21,15 @@ export function tail(view: roadmap.Snapshot, count: number) {
       for (const step of view.nodes.filter(n => n.parent === episode.id)) all.push({ node: step, depth: 1 });
     }
   }
-  let rows = all.slice(-count);
-  if (rows[0]?.node.kind === "step" && count > 1) {
-    rows = all.slice(-(count - 1));
-    const parent = view.nodes.find(n => n.id === rows[0]?.node.parent);
-    if (rows[0]?.node.kind === "step" && parent) rows.unshift({ node: parent, depth: 0, continued: true });
+  let rows: Row[] = [],
+    used = 0;
+  for (let i = all.length - 1; i >= 0; i--) {
+    used += rowHeight(all[i]);
+    if (used > count) break;
+    const parent = all[i].depth === 1 ? view.nodes.find(n => n.id === all[i].node.parent) : null;
+    if (used + (parent ? 1 : 0) > count) continue;
+    rows = all.slice(i);
+    if (parent) rows.unshift({ node: parent, depth: 0, continued: true });
   }
   return { rows, hidden: all.length - rows.length };
 }
@@ -81,7 +86,8 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
     );
   };
   row(3, "  Episode / step", metric(["Tokens", "Calls", "Cached"]), "faint");
-  rows.forEach(({ node, depth, continued }, i) => {
+  let y = 4;
+  rows.forEach(({ node, depth, continued }) => {
     const closed =
         node.state === "done" ||
         node.state === "abandoned" ||
@@ -97,8 +103,7 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
       marker = node.state === "active" ? "▶" : " ",
       issue = node.bump ? "!" : " ",
       counts = view.counts[node.id] ?? roadmap.zero(),
-      suffix = node.state === "planned" ? " (planned)" : continued ? " (continued)" : "",
-      y = 4 + i;
+      suffix = node.state === "planned" ? " (planned)" : continued ? " (continued)" : "";
     row(y, `${prefix}${marker} ${issue} ${node.title}${suffix}`, stats(counts), tone);
     const mark = (column: number, value: string, color: palette.Token, bold = false) => {
       const style = new palette.Style({ fg: color, bg: "surface", bold });
@@ -106,6 +111,11 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
     };
     if (node.state === "active") mark(prefix.length, marker, "accent", true);
     if (node.bump) mark(prefix.length + 2, "!", node.bump.state === "open" ? "warm" : "muted");
+    y++;
+    if (node.bump) {
+      const resolved = node.bump.state === "resolved";
+      line(y++, prefix + "    " + (resolved ? "Resolved · " : "") + node.bump.detail, resolved ? "faint" : "muted");
+    }
   });
   if (!rows.length) line(4, "  The plan will appear as Corgi observes work.", "muted");
   line(rect.h - 3, "─".repeat(rect.w), "line");
