@@ -3,7 +3,6 @@ import * as palette from "../../src/palette";
 import * as roadmap from "../../src/activity/roadmap";
 import { Writer } from "../../src/text";
 import { grid } from "../../site/terminal";
-import type { Action } from "../../src/action";
 
 type Replay = {
   key: string;
@@ -21,7 +20,6 @@ const session = document.querySelector<HTMLSelectElement>("#session")!,
   position = document.querySelector<HTMLElement>("#position")!,
   notes = document.querySelector<HTMLElement>("#notes")!;
 const height = document.querySelector<HTMLSelectElement>("#height")!;
-const state = new planView.State();
 let cols = 110,
   rows = 34,
   narrow = false;
@@ -39,7 +37,7 @@ function render() {
   cols = Math.max(30, Math.min(narrow ? 64 : 116, Math.floor((document.querySelector("#wrap")!.clientWidth - 2) / 9)));
   rows = Number(height.value);
   const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().id, view(), state);
+  planView.draw(out, planView.geometry(cols, rows), current().id, view());
   const fragment = document.createDocumentFragment();
   for (const row of grid(out.buffered(), cols, rows)) {
     const line = document.createElement("div");
@@ -60,59 +58,14 @@ function render() {
   notes.textContent = `${current().model} · ${current().ablation} · source ${current().source.slice(0, 12)} · ${current().failures.length ? "Eval findings: " + current().failures.join("; ") : "All reviewed assertions passed"}`;
 }
 function change() {
-  state.clear();
   slider.max = String(current().checkpoints.length - 1);
   slider.value = slider.max;
   render();
 }
-function perform(action: Action) {
-  if (action.name === "plan-close") state.selected = "";
-  else state.navigate(view(), action, planView.capacity(planView.geometry(cols, rows)));
-  render();
-}
 screen.tabIndex = 0;
 screen.addEventListener("keydown", e => {
-  const input =
-    (
-      {
-        ArrowDown: "down",
-        ArrowUp: "up",
-        ArrowLeft: "left",
-        ArrowRight: "right",
-        Enter: "\r",
-        Escape: "\x1b",
-        PageDown: "page_down",
-        PageUp: "page_up",
-        Home: "home",
-        End: "end",
-      } as Record<string, string>
-    )[e.key] ?? e.key;
-  const action = planView.key(input);
-  if (action) {
-    e.preventDefault();
-    perform(action);
-  }
+  if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", "Enter", " "].includes(e.key)) e.preventDefault();
 });
-screen.addEventListener("click", e => {
-  const r = screen.getBoundingClientRect();
-  const id = planView.hit(
-    planView.geometry(cols, rows),
-    Math.floor((e.clientX - r.left) / 9),
-    Math.floor((e.clientY - r.top) / 20),
-    state,
-    view(),
-  );
-  if (id) perform({ name: "plan-select", value: id });
-  screen.focus({ preventScroll: true });
-});
-screen.addEventListener(
-  "wheel",
-  e => {
-    e.preventDefault();
-    perform({ name: e.deltaY > 0 ? "plan-scroll-next" : "plan-scroll-prev" });
-  },
-  { passive: false },
-);
 slider.addEventListener("input", render);
 session.addEventListener("change", change);
 height.addEventListener("change", render);
@@ -121,7 +74,7 @@ document.querySelector("#long")!.addEventListener("click", () => {
   session.value = data.toSorted(
     (a, b) => b.checkpoints.at(-1)!.view.nodes.length - a.checkpoints.at(-1)!.view.nodes.length,
   )[0].key;
-  height.value = "24";
+  height.value = "18";
   change();
   screen.focus({ preventScroll: true });
 });
@@ -129,23 +82,14 @@ document.querySelector("#narrow")!.addEventListener("click", () => {
   narrow = !narrow;
   render();
 });
-document.querySelector("#bumps")!.addEventListener("click", () => {
-  const ids = view()
-      .nodes.filter(n => n.bump)
-      .map(n => n.id),
-    at = ids.indexOf(state.selected);
-  state.selected = ids[(at + 1) % ids.length] ?? state.selected;
-  state.collapsed.clear();
-  render();
-});
 document.querySelector("#ansi")!.addEventListener("click", () => {
   const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().id, view(), state);
+  planView.draw(out, planView.geometry(cols, rows), current().id, view());
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([out.buffered()], { type: "text/plain" }));
   a.download = "corgi-plan.ansi";
   a.click();
   URL.revokeObjectURL(a.href);
 });
-Object.assign(window, { planReview: { state, view, render } });
+Object.assign(window, { planReview: { view, render } });
 change();

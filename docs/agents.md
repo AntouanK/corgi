@@ -290,16 +290,16 @@ because missing items may still be open.
 its existing activity worker. The plan is separate from lifecycle and native
 OMP activity labels. Select an agent and use prefix P or the command menu's
 Long-term plan to inspect it. The tree has two levels, episodes and steps,
-with one row per item and the goal in the header. Up/down select, Enter folds,
-mouse selects and scrolls, and Escape closes. Page Up/Down move a page;
-Home/End jump to the ends. A scrollbar and row range show hidden work, and an
-episode name stays above its steps when its row scrolls away.
+with one row per item and the goal in the header. It follows the tail automatically,
+keeping the episode heading above its latest steps. An earlier-item count shows
+omitted history. The footer totals cover all observed work, including hidden rows.
+There is no selection or scrolling; Escape or a click outside closes the panel.
 
 TODO lists express intent. Bounded tool outcomes and commentary support
 problems marked ! only on the affected step. Resolved problems keep a dimmed !.
 A green ▶ means running. Completed work is dimmed; future work is labeled
-planned. Tool-call counts and cached-input details appear beside the work and
-in selection details. Missing usage fields stay blank.
+planned. Tokens, tool-call counts and cached input appear in columns beside the
+work and in the total row. Missing usage fields stay blank.
 Live costs count observed intervals after an opening baseline, include cached input once, exclude child
 and summarizer usage, and retain unassigned cost. They are partial coverage,
 not full transcript accounting. Plan and pending intervals survive reload;

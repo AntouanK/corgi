@@ -46,36 +46,31 @@ function fixture(): roadmap.Snapshot {
   return view;
 }
 test.each(["corgi", "animal_style"] as const)(
-  "plan renders in terminal cells with visible setback and keyboard folding under %s",
+  "plan renders a compact tail with local problems and whole-plan totals under %s",
   theme => {
     palette.use(theme);
-    const state = new planView.State(),
-      view = fixture(),
+    const view = fixture(),
       terminal = new Terminal(100, 30),
       rect = planView.geometry(100, 30);
     try {
       const writer = new Writer();
-      planView.draw(writer, rect, "Download repair", view, state);
+      planView.draw(writer, rect, "Download repair", view);
       terminal.feed(writer.buffered());
       const screen = terminal.text();
       expect(screen).toContain("Repair download resume");
-      expect(state.rows(view).map(r => r.depth)).toEqual([0, 1]);
-      expect(screen.split("\n")[rect.y + 5]).toContain("▶   Correct retry offsets");
-      expect(screen.split("\n")[rect.y + 6]).toContain("! Run resume tests");
+      expect(planView.tail(view, planView.capacity(rect)).rows.map(r => r.depth)).toEqual([0, 1]);
+      expect(screen.split("\n")[rect.y + 4]).toContain("▶   Correct retry offsets");
+      expect(screen.split("\n")[rect.y + 5]).toContain("! Run resume tests");
       expect(screen.split("\n").find(line => line.includes("Correct retry offsets"))).not.toContain("!");
       expect(screen).toContain("! Run resume tests");
       expect(screen).not.toContain("✓");
       expect(screen).not.toContain("○");
       expect(screen).not.toContain("▾");
-      expect(screen).toContain("Cached 1k (part of input)");
-      expect(screen).toContain("6 tool calls");
-      expect(state.selected).toBe("e");
-      state.toggle();
-      const folded = new Writer();
-      planView.draw(folded, rect, "Download repair", view, state);
-      terminal.feed(folded.buffered());
-      expect(terminal.text()).not.toContain("Run resume tests");
-      expect(planView.hit(rect, rect.x + 8, rect.y + 5, state, view)).toBe("e");
+      expect(screen.split("\n").find(line => line.includes("Total"))).toMatch(/Total\s+≥2k\s+6\s+1k/);
+      expect(screen).not.toContain("A reset offset repeats the header");
+      expect(screen).not.toContain("Input ");
+      expect(screen).not.toContain("PgUp");
+      expect(screen).not.toContain("earlier items");
       expect(planView.key("\x1b")?.name).toBe("plan-close");
     } finally {
       terminal.destroy();
@@ -84,11 +79,10 @@ test.each(["corgi", "animal_style"] as const)(
   },
 );
 test("a short terminal retains a close instruction; long labels stay inside the panel", () => {
-  const state = new planView.State(),
-    writer = new Writer(),
+  const writer = new Writer(),
     terminal = new Terminal(35, 10);
   try {
-    planView.draw(writer, planView.geometry(35, 10), "Agent", fixture(), state);
+    planView.draw(writer, planView.geometry(35, 10), "Agent", fixture());
     terminal.feed(writer.buffered());
     expect(terminal.text()).toContain("Esc to close");
   } finally {
@@ -96,9 +90,8 @@ test("a short terminal retains a close instruction; long labels stay inside the 
   }
 });
 
-test("long plans keep two levels, scroll the selection into view, and show the hidden range", () => {
+test("long plans follow appended work, retain its episode, and total hidden work", () => {
   const view = fixture(),
-    state = new planView.State(),
     rect = planView.geometry(100, 24),
     terminal = new Terminal(100, 24);
   for (let i = 0; i < 60; i++) {
@@ -108,26 +101,29 @@ test("long plans keep two levels, scroll the selection into view, and show the h
   }
   const draw = () => {
     const out = new Writer();
-    planView.draw(out, rect, "Agent", view, state);
+    planView.draw(out, rect, "Agent", view);
     terminal.feed(out.buffered());
     return terminal.text();
   };
   try {
-    expect(draw()).toContain("1–10 of 62 · 52 below");
-    expect(terminal.text()).not.toContain("Inspect work item 59");
-    state.move(view, Infinity);
-    expect(draw()).toContain("Inspect work item 59");
-    expect(terminal.text()).toContain("53–62 of 62 · 52 above");
+    expect(draw()).toContain("47 earlier items");
+    expect(terminal.text()).toContain("Inspect work item 59");
+    expect(terminal.text()).not.toContain("Run resume tests");
     expect(terminal.text()).toContain("Correct retry offsets (continued)");
-    expect(state.rows(view).every(r => r.depth <= 1)).toBe(true);
-    state.move(view, -Infinity);
-    expect(draw()).toContain("1–10 of 62 · 52 below");
-    state.page(view, 1, planView.capacity(rect));
-    expect(draw()).toContain("11–20 of 62 · 10 above · 42 below");
-    state.scroll(view, 3, planView.capacity(rect));
-    expect(draw()).toContain("14–23 of 62 · 13 above · 39 below");
-    expect(planView.key("page_down")?.name).toBe("plan-page-next");
-    expect(planView.key("end")?.name).toBe("plan-last");
+    expect(planView.tail(view, planView.capacity(rect)).rows.every(r => r.depth <= 1)).toBe(true);
+    view.unassigned = { input: "1300", cached: "0", output: "0", tools: "1" };
+    view.nodes.push({ ...view.nodes[2], id: "latest", title: "Verify final repair", state: "active", bump: null });
+    expect(draw()).toContain("▶   Verify final repair");
+    expect(terminal.text()).toContain("48 earlier items");
+    expect(
+      terminal
+        .text()
+        .split("\n")
+        .find(line => line.includes("Total")),
+    ).toMatch(/Total\s+≥3k\s+7\s+1k/);
+    expect(terminal.text()).toContain("1k tokens unassigned");
+    expect(planView.key("page_down")).toBeNull();
+    expect(planView.key("end")).toBeNull();
   } finally {
     terminal.destroy();
   }

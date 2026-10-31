@@ -26,10 +26,12 @@ class Plans extends Summaries {
     try {
       await viewer.input("\x02P");
       await this.until(async () => (await screen()).includes("Restore terminal focus"));
+      const beforeNavigation = await screen();
+      await viewer.input("\x1b[6~");
       await viewer.input("\r");
-      await this.until(async () => !(await screen()).includes("Trace focus changes"));
-      await viewer.input("\r");
-      await this.until(async () => (await screen()).includes("Trace focus changes"));
+      this.assertEqual(await screen(), beforeNavigation);
+      await viewer.input("\x1b");
+      await this.until(async () => !(await screen()).includes("Restore terminal focus"));
     } finally {
       await viewer.close();
     }

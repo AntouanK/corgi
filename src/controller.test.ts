@@ -5190,7 +5190,9 @@ test("a full input box still opens the field on a double-click and keeps Rename 
   } finally {
     viewer.close(refused);
   }
-test("the plan panel opens through its action and routes keyboard and mouse to the same selection", async () => {
+});
+
+test("the plan tail opens through its action and ignores navigation until closed", async () => {
   const s = controller(),
     snapshot: any = folders("/a");
   const view = roadmap.emptyView();
@@ -5232,17 +5234,10 @@ test("the plan panel opens through its action and routes keyboard and mouse to t
   s.input_state.attached = true;
   await s.perform({ name: "plan" });
   expect(s.plan_card.actor).toBe(1);
-  s.plan_card.selected = "g";
   await s.input(bytes("\x1b[B"));
-  expect(s.plan_card.selected).toBe("e");
   await s.input(bytes("\r"));
-  expect(s.plan_card.collapsed.has("e")).toBe(true);
-  await s.perform({ name: "plan-select", value: "e" });
-  expect(s.plan_card.collapsed.has("e")).toBe(false);
   await s.input(bytes("\x1b[6~"));
-  expect(s.plan_card.selected).toBe("s");
-  await s.input(bytes("\x1b[H"));
-  expect(s.plan_card.selected).toBe("e");
+  expect(s.plan_card.actor).toBe(1);
   await s.input(bytes("\x1b[27u"));
   expect(s.plan_card.actor).toBe(0);
 });

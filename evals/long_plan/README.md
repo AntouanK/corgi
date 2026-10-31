@@ -15,10 +15,10 @@ CORGI_LONG_PLAN=1 ./go.ts --env long-plan --no-kill
 
 Keep Activity summaries enabled in Clever Corgi. Select an agent, then use
 **prefix P**, the command menu's **Long-term plan**, or `corgi action plan`.
-Up/down select; Enter folds an episode; mouse clicks select/fold and the wheel
-scrolls the panel. Page Up/Down move a page; Home/End jump to the ends. Escape
-closes it. Native OMP labels stay native;
-the optional plan uses their intent as evidence without replacing them.
+The panel follows the tail automatically, with episode context and whole-plan
+totals. There is no selection or scrolling. Escape or a click outside closes it.
+Native OMP labels stay native; the optional plan uses their intent as evidence
+without replacing them.
 
 The worker samples commentary, recent/running tools, bounded result excerpts,
 native intents, lifecycle and the provider's confirmed checklist. It updates
@@ -36,8 +36,8 @@ summarizer costs are excluded. The UI marks live coverage with ≥. Attribution
 to a step is inferred, even when its observed token count is exact.
 Tool calls follow the same observed-interval rollup, independently of whether
 token usage has arrived. Missing usage fields stay blank, including tool counts
-in older saved plans. Selection details show input, output and cached
-input separately; cached input is included in input, never added a second time.
+in older saved plans. The total row covers the whole observed plan. Cached
+input is included in tokens, never added a second time.
 
 Plans, pending observations and costs survive checkpoint/handoff. Cold recovery
 establishes a fresh usage baseline. Queues retain 32 observations and 128 short
@@ -55,10 +55,9 @@ saved mode. Older viewers ignore the optional plan.
 A step may carry a classified setback: verification, conflict, environment,
 permission, or approach. **!** marks a problem only on the affected step;
 it never propagates to parents.
-Resolved problems keep a dimmed **!**, with recovery stated in the detail.
+Resolved problems keep a dimmed **!**.
 A green **▶** means running. Completed work is dimmed; future work is labeled
-planned. Only collapsed rows show **+**. Available tool-call counts and
-cached-input details remain visible.
+planned. Available tool-call counts and cached input remain visible.
 An approach setback means rework caused by a disproved committed approach,
 not every exploratory hypothesis. Expected red tests, no-match searches,
 ordinary waits and error strings inside source code are negative controls.
@@ -86,10 +85,10 @@ bun evals/long_plan/preview.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 
 `preview.ts` builds `.lavish/long-plan-integrated.html` using the actual
 `src/plan_view.ts` renderer and Corgi palette. It includes recorded failures and
-checkpoint controls. The default 24-row terminal shows 10 of the real rebase
-replay's 16 episode/step rows. “Long example” selects that replay; the height
-control demonstrates shorter and taller terminals. A scrollbar, visible range
-and above/below counts show overflow. The older `view.ts` remains the original
+checkpoint controls. “Long example” selects the real rebase replay in an 18-row
+terminal, showing the last nine of its 16 episode/step rows with parent context.
+The height control demonstrates shorter and taller terminals. An earlier-item
+count shows omitted history; the totals still include it. The older `view.ts` remains the original
 design study.
 `live-signals` runs production transcript readers and their bounded evidence at
 the offline checkpoints. It is a conservative signal-loss probe: it does not
@@ -173,12 +172,12 @@ an interruption or a status question does not automatically create a goal.
 Returning to an episode preserves its identity; a new attempt can add a step.
 Only explicitly announced future work becomes a planned step, with no tokens yet.
 
-Episodes can fold; their steps use one indentation level. Rows align tokens,
-tool calls and cached input in columns. Selection shows the subtitle, problem
-detail and usage breakdown. Narrow terminals keep the remaining metrics in that
-detail area. The list scrolls independently of the header and detail area; an
-offscreen episode heading remains visible as context for its steps. Replay
-controls belong to the eval, not to the live product. The planner retains goal
+Steps use one indentation level. Rows align tokens, tool calls and cached input
+in columns; narrow terminals prioritize names and tokens. The view follows the
+latest rows, retaining the parent episode when the tail cuts into its steps.
+There is no selection, scrolling or detail pane. The footer totals cover all
+observed work, not just the visible tail. Replay controls belong to the eval,
+not to the live product. The planner retains goal
 identity internally so changing this presentation does not rewrite history.
 
 ## Signals and accounting

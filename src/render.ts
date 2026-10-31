@@ -1145,7 +1145,7 @@ export function frame(
     const c = u.conversations.find(c => c.id === u.plan_card!.actor),
       rect = planView.geometry(width, height);
     if (c) {
-      planView.draw(w, rect, c.agent.name || "Agent", c.activity_plan, u.plan_card);
+      planView.draw(w, rect, c.agent.name || "Agent", c.activity_plan);
       cover(rect);
     }
   } else if (u.worktree_card) {
