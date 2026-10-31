@@ -59,11 +59,12 @@ test.each(["corgi", "animal_style"] as const)(
       terminal.feed(writer.buffered());
       const screen = terminal.text();
       expect(screen.split("\n").find(line => line.includes("Repair download resume"))).toContain(
-        ">   Repair download resume",
+        "▶   Repair download resume",
       );
       expect(screen.split("\n").find(line => line.includes("Correct retry offsets"))).not.toContain("!");
-      expect(screen).toContain("× ! Run resume tests");
-      expect(screen).not.toContain("!✓");
+      expect(screen).toContain("! Run resume tests");
+      expect(screen).not.toContain("✓");
+      expect(screen).not.toContain("○");
       expect(screen).not.toContain("▾");
       expect(screen).toContain("Cached 1k (part of input)");
       expect(screen).toContain("6 tool calls");

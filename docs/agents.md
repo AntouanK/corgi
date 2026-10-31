@@ -294,8 +294,9 @@ scrolls, and Escape closes.
 
 TODO lists express intent. Bounded tool outcomes and commentary support
 problems marked ! only on the affected step. Resolved problems keep a dimmed !.
-A green > means running; ✓ means done. Completed work is dimmed. Tool-call
-counts and cached-input details appear beside the work and in selection details.
+A green ▶ means running. Completed work is dimmed; future work is labeled
+planned. Tool-call counts and cached-input details appear beside the work and
+in selection details. Missing usage fields stay blank.
 Live costs count observed intervals after an opening baseline, include cached input once, exclude child
 and summarizer usage, and retain unassigned cost. They are partial coverage,
 not full transcript accounting. Plan and pending intervals survive reload;

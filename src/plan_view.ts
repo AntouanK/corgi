@@ -79,16 +79,8 @@ export function hit(rect: Rect, x: number, y: number, state: State, view: roadma
   if (!rect.contains(x, y) || y < rect.y + 4 || y >= rect.y + 4 + capacity(rect) * 2) return null;
   return state.rows(view)[state.offset + Math.floor((y - rect.y - 4) / 2)]?.node.id ?? null;
 }
-const icons: Record<Node["state"], string> = {
-  planned: "○",
-  active: ">",
-  done: "✓",
-  failed: "×",
-  blocked: "…",
-  abandoned: "–",
-};
 function toolCount(counts: roadmap.Counts, full = false) {
-  if (counts.tools === undefined) return full ? "Tool-call count unknown" : "? calls";
+  if (counts.tools === undefined) return "";
   const n = BigInt(counts.tools);
   return `${text.compactCount(n)} ${full ? "tool " : ""}call${n === 1n ? "" : "s"}`;
 }
@@ -111,12 +103,14 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
     .reduce((sum, n) => roadmap.add(sum, view.counts[n.id] ?? roadmap.zero()), view.unassigned);
   line(
     1,
-    `  ${view.known ? (view.partial ? "≥" : "") + text.compactCount(roadmap.total(observed)) : "Unknown"} tokens observed · includes cached input · agent only`,
+    view.known
+      ? `  ${view.partial ? "≥" : ""}${text.compactCount(roadmap.total(observed))} tokens observed · includes cached input · agent only`
+      : "",
     "muted",
   );
   line(
     2,
-    `  > running · ✓ done · ! problem encountered · ${text.compactCount(roadmap.total(view.unassigned))} tokens unassigned${view.limited ? " · history limit reached" : ""}`,
+    `  ▶ running · ! problem encountered${view.known ? " · " + text.compactCount(roadmap.total(view.unassigned)) + " tokens unassigned" : ""}${view.limited ? " · history limit reached" : ""}`,
     "faint",
   );
   line(3, "─".repeat(rect.w), "line");
@@ -130,11 +124,11 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
         (node.state === "failed" && node.bump?.state === "resolved"),
       tone: palette.Token = closed ? "muted" : node.state === "planned" ? "faint" : selected ? "strong" : "text";
     const prefix = "  " + "  ".repeat(depth),
-      fold = node.kind === "step" ? " " : state.collapsed.has(node.id) ? "+" : "−",
-      marker = icons[node.state],
+      fold = node.kind === "step" ? " " : state.collapsed.has(node.id) ? "+" : " ",
+      marker = node.state === "active" ? "▶" : " ",
       issue = node.bump ? "!" : " ",
       counts = view.counts[node.id] ?? roadmap.zero();
-    const count = view.known ? text.compactCount(roadmap.total(counts)) : "?";
+    const count = view.known ? text.compactCount(roadmap.total(counts)) : "";
     const title = text.ellipsis(`${prefix}${fold} ${marker} ${issue} ${node.title}`, rect.w - count.length - 3);
     const y = 4 + i * 2;
     line(
@@ -143,17 +137,20 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
       tone,
       selected,
     );
-    const mark = (column: number, value: string, color: palette.Token) => {
-      const style = new palette.Style({ fg: color, bg: selected ? "selected" : "surface" });
+    const mark = (column: number, value: string, color: palette.Token, bold = false) => {
+      const style = new palette.Style({ fg: color, bg: selected ? "selected" : "surface", bold });
       w.write(`\x1b[${rect.y + y + 1};${rect.x + column + 1}H${style.sgr()}${value}`);
     };
-    if (node.state === "active") mark(prefix.length + 2, marker, "accent");
+    if (node.state === "active") mark(prefix.length + 2, marker, "accent", true);
     if (node.bump) mark(prefix.length + 4, "!", node.bump.state === "open" ? "warm" : "muted");
     const stats =
       rect.w >= 76
-        ? `${toolCount(counts)} · ${view.known ? text.compactCount(BigInt(counts.cached)) : "?"} cached`
+        ? [toolCount(counts), view.known ? `${text.compactCount(BigInt(counts.cached))} cached` : ""]
+            .filter(Boolean)
+            .join(" · ")
         : "";
-    const subtitle = text.ellipsis(prefix + "      " + node.subtitle, rect.w - (stats ? stats.length + 4 : 2));
+    const label = node.state === "active" || node.state === "done" ? "" : node.state + " · ";
+    const subtitle = text.ellipsis(prefix + "      " + label + node.subtitle, rect.w - (stats ? stats.length + 4 : 2));
     line(
       y + 1,
       subtitle +
@@ -183,14 +180,10 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
       y + 3,
       view.known
         ? `  Input ${text.compactCount(BigInt(counts.input))} · output ${text.compactCount(BigInt(counts.output))}`
-        : "  Token usage unknown",
+        : "",
       "muted",
     );
-    line(
-      y + 4,
-      view.known ? `  Cached ${text.compactCount(BigInt(counts.cached))} (part of input)` : "  Cached usage unknown",
-      "faint",
-    );
+    line(y + 4, view.known ? `  Cached ${text.compactCount(BigInt(counts.cached))} (part of input)` : "", "faint");
     line(y + 5, "  " + toolCount(counts, true), "muted");
   }
   line(
