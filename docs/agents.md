@@ -299,16 +299,16 @@ There is no selection or scrolling; Escape or a click outside closes the panel.
 TODO lists express intent. Bounded tool outcomes and commentary support
 problems marked ! only on the affected step. Each problem has a short explanation
 below it; resolved problems use !✓ and strike through that explanation.
-A green ▶ marks the current or most recently worked-on episode. Its current
-active step also gets a green ▶ and bold text; completed steps are dimmed
+A green ▶ marks the focused episode while it is active. Its current active
+step also gets a green ▶ and bold text; completed episodes and steps are dimmed
 and future work is labeled planned. Older unfinished steps keep ordinary text. Returning to an
 earlier active step brings it into the tail. Sidebar branches (├, ╰, │ and
 the focused ┣/┃) connect each block. Two or more hidden steps get a “… N more”
 row; an unknown current step gets “…”. Tokens, tool-call counts and cached input
-appear in columns beside the work and in the total row. Missing usage fields stay blank. The episode marker
-follows the latest attributed work, independently of completion labels or open
-setbacks. It survives pauses and reloads; the agent status shows whether it is
-running. Older plans without the optional focus fields show no highlight until
+appear in columns beside the work and in the total row. Missing usage fields
+stay blank. Stored focus follows the latest attributed work and survives pauses
+and reloads, keeping the episode in the tail after completion. Play icons only
+appear on active work; the agent status reports whether the agent is running. Older plans without the optional focus fields show no highlight until
 new work is attributed.
 Live costs count observed intervals after an opening baseline, include cached input once, exclude child
 and summarizer usage, and retain unassigned cost. They are partial coverage,

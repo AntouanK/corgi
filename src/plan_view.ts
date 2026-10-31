@@ -125,7 +125,7 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
       return;
     }
     const { node, depth } = entry;
-    const focused = node.id === view.focus,
+    const focused = node.id === view.focus && node.state === "active",
       current = currentStep(view, node),
       closed =
         node.state === "done" ||

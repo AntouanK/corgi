@@ -57,8 +57,8 @@ permission, or approach. **!** marks a problem only on the affected step;
 it never propagates to parents.
 A setback adds one explanation line beneath its step. Resolved problems keep a
 dimmed **!✓** and a struck-through explanation.
-A green **▶** marks the current or most recently worked-on episode. Its current
-active step also gets a green **▶** and bold text; completed steps are dimmed
+A green **▶** marks the focused episode while it is active. Its current active
+step also gets a green **▶** and bold text; completed episodes and steps are dimmed
 and future work is labeled planned. Older unfinished steps keep ordinary text. The active step
 stays in the tail when revisited. Sidebar branches connect steps and their
 explanations. Two or more hidden steps get a “… N more” row instead of a
@@ -161,13 +161,16 @@ archives the prior report. Repairs name any attempted identity/parent changes;
 the reducer still rejects rewritten history. Resuming a completed replay makes
 no additional model calls. Flat-baseline resume is not supported.
 
-The single episode marker follows the last attributed work span, independently
-of inferred completion labels. Null/unassigned events and pauses retain focus;
-new work in another episode moves it. Returning to an older episode brings its
-tail into view. Focus survives reload and cold recovery, defaults to null in old
-snapshots, and is not an agent-running indicator. In the rebase regression,
-checkpoints 1, 2 and 3 keep the same marker even though the middle checkpoint is a
-completed turn. Runtime/viewer protocol 3 and saved-format 6 remain unchanged.
+Stored focus follows the last attributed work span. Null/unassigned events and
+pauses retain focus; new work in another episode moves it. Returning to an older
+episode brings its tail into view. Focus survives reload and cold recovery and
+defaults to null in old snapshots. Play icons require active state: a completed
+episode stays in the tail but loses its play icon and dims. In the rebase
+regression, checkpoints 1, 2 and 3 retain the same episode position; the middle
+checkpoint is a completed turn and correctly shows no play icons. The full plan
+project's merge checkpoint (event 295) also has no play icon: the commit, final
+reply and task completion have all occurred. Runtime/viewer protocol 3 and
+saved-format 6 remain unchanged.
 
 ## 2026-10-31 results
 

@@ -183,7 +183,7 @@ test("long plans follow appended work, retain its episode, and total hidden work
   }
 });
 
-test("episode focus survives pauses while the current step follows its active state", () => {
+test("completed work loses both play icons without moving the episode from the tail", () => {
   const view = fixture(),
     rect = planView.geometry(100, 18),
     terminal = new Terminal(100, 18);
@@ -196,8 +196,9 @@ test("episode focus survives pauses while the current step follows its active st
       const out = new Writer();
       planView.draw(out, rect, "Agent", view);
       terminal.feed(out.buffered());
-      expect((terminal.text().match(/▶/g) ?? []).length).toBe(state === "active" ? 2 : 1);
-      expect(terminal.text().split("\n")[rect.y + 4]).toContain("▶ Correct retry offsets");
+      expect((terminal.text().match(/▶/g) ?? []).length).toBe(state === "active" ? 2 : 0);
+      expect(terminal.text().split("\n")[rect.y + 4]).toContain("Correct retry offsets");
+      expect(view.focus).toBe("e");
     }
     view.nodes.push(
       { ...view.nodes[1], id: "e2", title: "Verify final repair" },
