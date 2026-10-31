@@ -31,7 +31,10 @@ function fail(message: string): never {
 export function id(a: action.Action): string {
   return a.name === "tab" || a.name === "goto-workspace"
     ? a.name
-    : a.name + (a.value === undefined || (a.name === "resources" && a.value === 0) ? "" : `:${a.value}`);
+    : a.name +
+        (a.value === undefined || ((a.name === "resources" || a.name === "plan") && a.value === 0)
+          ? ""
+          : `:${a.value}`);
 }
 export function target(name: string): action.Action {
   if (name === "tab" || name === "goto-workspace") return { name, value: 1 };

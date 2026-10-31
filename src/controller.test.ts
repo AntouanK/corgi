@@ -5240,4 +5240,12 @@ test("the plan tail opens through its action and ignores navigation until closed
   expect(s.plan_card.actor).toBe(1);
   await s.input(bytes("\x1b[27u"));
   expect(s.plan_card.actor).toBe(0);
+  await s.input(bytes("\x02P"));
+  expect(s.plan_card.actor).toBe(1);
+  await s.perform({ name: "plan-close" });
+  s.prefs.keys = { plan: "ctrl+alt+p" };
+  await s.input(bytes("\x1b[112;7u"));
+  expect(s.plan_card.actor).toBe(1);
+  await s.perform({ name: "plan-close" });
+  expect(s.plan_card.actor).toBe(0);
 });
