@@ -33,6 +33,10 @@ step → episode → goal; cached input is part of input. Unassigned intervals,
 missing coverage and buffer overrun stay explicit. Child-agent costs and private
 summarizer costs are excluded. The UI marks live coverage with ≥. Attribution
 to a step is inferred, even when its observed token count is exact.
+Tool calls follow the same observed-interval rollup, independently of whether
+token usage has arrived. Older saved plans without tool counts show unknown;
+they do not invent zero counts. Selection details show input, output and cached
+input separately; cached input is included in input, never added a second time.
 
 Plans, pending observations and costs survive checkpoint/handoff. Cold recovery
 establishes a fresh usage baseline. Queues retain 32 observations and 128 short
@@ -48,8 +52,12 @@ saved mode. Older viewers ignore the optional plan.
 ## Setbacks and new signal probes
 
 A step may carry a classified setback: verification, conflict, environment,
-permission, or approach. **!** marks an open setback; **!✓** retains a recovered
-one. An approach setback means rework caused by a disproved committed approach,
+permission, or approach. **!** marks a problem only on the affected step;
+it never propagates to parents.
+Resolved problems keep a dimmed **!**, with recovery stated in the detail.
+A green **>** means running and **✓** means done. Completed work is dimmed;
+folding uses **+ / −**. Tool-call counts and cached-input details remain visible.
+An approach setback means rework caused by a disproved committed approach,
 not every exploratory hypothesis. Expected red tests, no-match searches,
 ordinary waits and error strings inside source code are negative controls.
 

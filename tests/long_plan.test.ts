@@ -46,6 +46,13 @@ class Plans extends Summaries {
     await this.until(async () => (await view()).known);
     tokens(300);
     await this.until(async () => BigInt((await view()).counts.g.input) >= 200n);
+    this.tools(2, "bun test focus");
+    await this.until(async () => {
+      const plan = await view();
+      return BigInt(plan.counts.g.tools) + BigInt(plan.unassigned.tools) === 2n;
+    });
+    await this.advance(10);
+    await this.until(async () => (await view()).counts.g.tools === "2");
     const before = await view(),
       pid = (await this.session()).server_pid;
     this.assertEqual(before.nodes[2].bump.kind, "verification");

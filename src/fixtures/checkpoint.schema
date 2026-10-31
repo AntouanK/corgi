@@ -516,10 +516,14 @@ $.conversations[].activity_plan?.view.counts: any
 $.conversations[].activity_plan?.view.unassigned.input: string
 $.conversations[].activity_plan?.view.unassigned.cached: string
 $.conversations[].activity_plan?.view.unassigned.output: string
+$.conversations[].activity_plan?.view.unassigned.tools: optional
+$.conversations[].activity_plan?.view.unassigned.tools?: string
 $.conversations[].activity_plan?.view.known: bool
 $.conversations[].activity_plan?.view.partial: bool
 $.conversations[].activity_plan?.view.limited: bool
 $.conversations[].activity_plan?.through: usize
+$.conversations[].activity_plan?.tools_baseline: optional
+$.conversations[].activity_plan?.tools_baseline?: string
 $.conversations[].activity_plan?.last: string
 $.conversations[].activity_plan?.turn: string
 $.conversations[].activity_plan?.turn_index: usize
@@ -533,6 +537,8 @@ $.conversations[].activity_plan?.baseline?.output: string
 $.conversations[].activity_plan?.unassigned.input: string
 $.conversations[].activity_plan?.unassigned.cached: string
 $.conversations[].activity_plan?.unassigned.output: string
+$.conversations[].activity_plan?.unassigned.tools: optional
+$.conversations[].activity_plan?.unassigned.tools?: string
 $.conversations[].activity_plan?.pending[].id: usize
 $.conversations[].activity_plan?.pending[].line: usize
 $.conversations[].activity_plan?.pending[].at: string
@@ -549,3 +555,5 @@ $.conversations[].activity_plan?.receipts[].event: usize
 $.conversations[].activity_plan?.receipts[].tokens.input: string
 $.conversations[].activity_plan?.receipts[].tokens.cached: string
 $.conversations[].activity_plan?.receipts[].tokens.output: string
+$.conversations[].activity_plan?.receipts[].tokens.tools: optional
+$.conversations[].activity_plan?.receipts[].tokens.tools?: string

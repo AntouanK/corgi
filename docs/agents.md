@@ -293,8 +293,10 @@ Long-term plan to inspect it. Up/down select, Enter folds, mouse selects and
 scrolls, and Escape closes.
 
 TODO lists express intent. Bounded tool outcomes and commentary support
-setbacks marked !; recovered setbacks retain !✓. Live costs count observed
-intervals after an opening baseline, include cached input once, exclude child
+problems marked ! only on the affected step. Resolved problems keep a dimmed !.
+A green > means running; ✓ means done. Completed work is dimmed. Tool-call
+counts and cached-input details appear beside the work and in selection details.
+Live costs count observed intervals after an opening baseline, include cached input once, exclude child
 and summarizer usage, and retain unassigned cost. They are partial coverage,
 not full transcript accounting. Plan and pending intervals survive reload;
 cold recovery establishes a new baseline. Missing fields default empty without

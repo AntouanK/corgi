@@ -39,9 +39,9 @@ function fixture(): roadmap.Snapshot {
   ];
   view.known = true;
   view.counts = {
-    g: { input: "2100", cached: "1000", output: "100" },
-    e: { input: "2100", cached: "1000", output: "100" },
-    s: { input: "2100", cached: "1000", output: "100" },
+    g: { input: "2100", cached: "1000", output: "100", tools: "6" },
+    e: { input: "2100", cached: "1000", output: "100", tools: "6" },
+    s: { input: "2100", cached: "1000", output: "100", tools: "6" },
   };
   return view;
 }
@@ -57,8 +57,16 @@ test.each(["corgi", "animal_style"] as const)(
       const writer = new Writer();
       planView.draw(writer, rect, "Download repair", view, state);
       terminal.feed(writer.buffered());
-      expect(terminal.text()).toContain("! Repair download resume");
-      expect(terminal.text()).toContain("verification");
+      const screen = terminal.text();
+      expect(screen.split("\n").find(line => line.includes("Repair download resume"))).toContain(
+        ">   Repair download resume",
+      );
+      expect(screen.split("\n").find(line => line.includes("Correct retry offsets"))).not.toContain("!");
+      expect(screen).toContain("× ! Run resume tests");
+      expect(screen).not.toContain("!✓");
+      expect(screen).not.toContain("▾");
+      expect(screen).toContain("Cached 1k (part of input)");
+      expect(screen).toContain("6 tool calls");
       state.move(view, 1);
       expect(state.selected).toBe("e");
       state.toggle();

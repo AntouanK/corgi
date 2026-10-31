@@ -48,11 +48,36 @@ test("live intervals exclude the opening baseline, conserve tokens and retain la
   road.observe("t", "working", "Tests complete", new List(), usage(1200n, 600n), 2000);
   const request = road.request()!;
   expect(road.apply(request, patch(nodes(), 1, 2))).toBe(true);
-  expect(road.counts.g).toEqual({ input: "200", cached: "100", output: "0" });
+  expect(road.counts.g).toEqual({ input: "200", cached: "100", output: "0", tools: "0" });
   road.observe("t", "working", "Tests complete", new List(), usage(1250n, 610n), 3000);
   expect(road.counts.g.input).toBe("250");
   expect(roadmap.total(road.view().unassigned)).toBe(0n);
   expect(road.view().partial).toBe(true);
+});
+
+test("tool calls roll up once without token receipts, survive handoff and leave old counts unknown", () => {
+  const road = new roadmap.Roadmap(),
+    observe = (tools: bigint) => road.observe("t", "working", "Run tests", new List(), new View({ tools }), 1000);
+  observe(10n);
+  observe(12n);
+  road.apply(road.request()!, patch());
+  expect(road.view().known).toBe(false);
+  expect(road.counts.g.tools).toBe("2");
+  expect(road.counts.e.tools).toBe("2");
+  expect(road.counts.s.tools).toBe("2");
+  observe(12n);
+  expect(road.counts.s.tools).toBe("2");
+  observe(13n);
+  expect(road.counts.s.tools).toBe("3");
+  const saved = JSON.parse(JSON.stringify(road)),
+    restored = roadmap.Roadmap.restore(saved, true);
+  restored.observe("t", "working", "Run tests", new List(), new View({ tools: 14n }), 1001);
+  expect(restored.counts.g.tools).toBe("4");
+  delete saved.tools_baseline;
+  for (const count of Object.values(saved.view.counts)) delete (count as roadmap.Counts).tools;
+  const old = roadmap.Roadmap.restore(saved, true);
+  expect(old.counts.g.tools).toBeUndefined();
+  expect(old.tools_baseline).toBeNull();
 });
 
 test("a validated prefix can finish after more evidence or a new turn arrives, but cannot apply twice", () => {

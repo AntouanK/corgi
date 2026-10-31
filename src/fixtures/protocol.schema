@@ -1137,6 +1137,8 @@ $.snapshot.conversations[].activity_plan?.counts: any
 $.snapshot.conversations[].activity_plan?.unassigned.input: string
 $.snapshot.conversations[].activity_plan?.unassigned.cached: string
 $.snapshot.conversations[].activity_plan?.unassigned.output: string
+$.snapshot.conversations[].activity_plan?.unassigned.tools: optional
+$.snapshot.conversations[].activity_plan?.unassigned.tools?: string
 $.snapshot.conversations[].activity_plan?.known: bool
 $.snapshot.conversations[].activity_plan?.partial: bool
 $.snapshot.conversations[].activity_plan?.limited: bool

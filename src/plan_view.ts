@@ -74,24 +74,24 @@ export function geometry(cols: number, rows: number) {
     h = Math.max(1, rows - 2);
   return new Rect(Math.floor((cols - w) / 2), 1, w, h);
 }
-export const capacity = (rect: Rect) => Math.max(1, Math.floor((rect.h - 9) / 2));
+export const capacity = (rect: Rect) => Math.max(1, Math.floor((rect.h - 12) / 2));
 export function hit(rect: Rect, x: number, y: number, state: State, view: roadmap.Snapshot): string | null {
   if (!rect.contains(x, y) || y < rect.y + 4 || y >= rect.y + 4 + capacity(rect) * 2) return null;
   return state.rows(view)[state.offset + Math.floor((y - rect.y - 4) / 2)]?.node.id ?? null;
 }
-export function bumps(view: roadmap.Snapshot, node: Node) {
-  const ids = new Set([node.id]);
-  for (const child of view.nodes) if (child.parent && ids.has(child.parent)) ids.add(child.id);
-  return view.nodes.filter(n => ids.has(n.id) && n.bump);
-}
 const icons: Record<Node["state"], string> = {
   planned: "○",
-  active: "▶",
+  active: ">",
   done: "✓",
   failed: "×",
-  blocked: "!",
+  blocked: "…",
   abandoned: "–",
 };
+function toolCount(counts: roadmap.Counts, full = false) {
+  if (counts.tools === undefined) return full ? "Tool-call count unknown" : "? calls";
+  const n = BigInt(counts.tools);
+  return `${text.compactCount(n)} ${full ? "tool " : ""}call${n === 1n ? "" : "s"}`;
+}
 export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Snapshot, state: State) {
   const line = (y: number, value: string, tone: palette.Token = "text", selected = false) => {
     if (y < 0 || y >= rect.h) return;
@@ -116,7 +116,7 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
   );
   line(
     2,
-    `  ! setback · ✓ resolved · ${text.compactCount(roadmap.total(view.unassigned))} tokens unassigned${view.limited ? " · history limit reached" : ""}`,
+    `  > running · ✓ done · ! problem encountered · ${text.compactCount(roadmap.total(view.unassigned))} tokens unassigned${view.limited ? " · history limit reached" : ""}`,
     "faint",
   );
   line(3, "─".repeat(rect.w), "line");
@@ -124,38 +124,74 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
   const rows = state.rows(view).slice(state.offset, state.offset + capacity(rect));
   rows.forEach(({ node, depth }, i) => {
     const selected = node.id === state.selected,
-      issues = bumps(view, node),
-      open = issues.some(n => n.bump?.state === "open");
+      closed =
+        node.state === "done" ||
+        node.state === "abandoned" ||
+        (node.state === "failed" && node.bump?.state === "resolved"),
+      tone: palette.Token = closed ? "muted" : node.state === "planned" ? "faint" : selected ? "strong" : "text";
     const prefix = "  " + "  ".repeat(depth),
-      fold = node.kind === "step" ? " " : state.collapsed.has(node.id) ? "▸" : "▾";
-    const marker = open ? "!" : issues.length ? "!✓" : icons[node.state];
-    const count = view.known ? text.compactCount(roadmap.total(view.counts[node.id] ?? roadmap.zero())) : "?";
-    const title = text.ellipsis(`${prefix}${fold} ${marker} ${node.title}`, rect.w - count.length - 3);
+      fold = node.kind === "step" ? " " : state.collapsed.has(node.id) ? "+" : "−",
+      marker = icons[node.state],
+      issue = node.bump ? "!" : " ",
+      counts = view.counts[node.id] ?? roadmap.zero();
+    const count = view.known ? text.compactCount(roadmap.total(counts)) : "?";
+    const title = text.ellipsis(`${prefix}${fold} ${marker} ${issue} ${node.title}`, rect.w - count.length - 3);
+    const y = 4 + i * 2;
     line(
-      4 + i * 2,
+      y,
       title + " ".repeat(Math.max(1, rect.w - text.displayWidth(title) - count.length - 2)) + count + "  ",
-      open ? "warm" : selected ? "strong" : "text",
+      tone,
       selected,
     );
-    line(5 + i * 2, prefix + "    " + node.subtitle, selected ? "muted" : "faint", selected);
+    const mark = (column: number, value: string, color: palette.Token) => {
+      const style = new palette.Style({ fg: color, bg: selected ? "selected" : "surface" });
+      w.write(`\x1b[${rect.y + y + 1};${rect.x + column + 1}H${style.sgr()}${value}`);
+    };
+    if (node.state === "active") mark(prefix.length + 2, marker, "accent");
+    if (node.bump) mark(prefix.length + 4, "!", node.bump.state === "open" ? "warm" : "muted");
+    const stats =
+      rect.w >= 76
+        ? `${toolCount(counts)} · ${view.known ? text.compactCount(BigInt(counts.cached)) : "?"} cached`
+        : "";
+    const subtitle = text.ellipsis(prefix + "      " + node.subtitle, rect.w - (stats ? stats.length + 4 : 2));
+    line(
+      y + 1,
+      subtitle +
+        (stats ? " ".repeat(Math.max(1, rect.w - text.displayWidth(subtitle) - stats.length - 2)) + stats + "  " : ""),
+      closed ? "faint" : "muted",
+      selected,
+    );
   });
   if (!rows.length) {
     line(5, "  The plan will appear as Corgi observes work.", "muted");
     line(7, "  Preview: start Corgi with CORGI_LONG_PLAN=1.", "faint");
   }
   const selected = view.nodes.find(n => n.id === state.selected),
-    y = rect.h - 4;
+    y = rect.h - 7;
   line(y, "─".repeat(rect.w), "line");
   if (selected) {
-    const issues = bumps(view, selected),
-      issue = issues.find(n => n.bump?.state === "open") ?? issues.at(-1);
+    const counts = view.counts[selected.id] ?? roadmap.zero();
+    line(y + 1, `  ${selected.state} · ${selected.title}`, "muted");
     line(
-      y + 1,
-      issue?.bump
-        ? `  ! ${issue.bump.kind} · ${issue.bump.state}: ${issue.bump.detail}`
-        : `  ${selected.state} · ${selected.subtitle}`,
-      issue?.bump?.state === "open" ? "warm" : "muted",
+      y + 2,
+      selected.bump
+        ? `  ! Problem ${selected.bump.state === "open" ? "encountered" : "resolved"}: ${selected.bump.detail}`
+        : `  ${selected.subtitle}`,
+      selected.bump?.state === "open" ? "warm" : "muted",
     );
+    line(
+      y + 3,
+      view.known
+        ? `  Input ${text.compactCount(BigInt(counts.input))} · output ${text.compactCount(BigInt(counts.output))}`
+        : "  Token usage unknown",
+      "muted",
+    );
+    line(
+      y + 4,
+      view.known ? `  Cached ${text.compactCount(BigInt(counts.cached))} (part of input)` : "  Cached usage unknown",
+      "faint",
+    );
+    line(y + 5, "  " + toolCount(counts, true), "muted");
   }
   line(
     rect.h - 1,

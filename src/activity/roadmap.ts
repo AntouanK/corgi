@@ -3,7 +3,7 @@ import * as checklist from "./checklist";
 import { clip } from "./tools";
 import type { View } from "../usage/live";
 
-export type Counts = { input: string; cached: string; output: string };
+export type Counts = { input: string; cached: string; output: string; tools?: string };
 export type Input = { state: plan.State; events: plan.Event[]; support: plan.Event[] };
 export type Snapshot = {
   nodes: plan.Node[];
@@ -13,13 +13,14 @@ export type Snapshot = {
   partial: boolean;
   limited: boolean;
 };
-export const zero = (): Counts => ({ input: "0", cached: "0", output: "0" });
+export const zero = (): Counts => ({ input: "0", cached: "0", output: "0", tools: "0" });
 export const total = (t: Counts) => BigInt(t.input) + BigInt(t.output);
 export function add(a: Counts, b: Counts): Counts {
   return {
     input: String(BigInt(a.input) + BigInt(b.input)),
     cached: String(BigInt(a.cached) + BigInt(b.cached)),
     output: String(BigInt(a.output) + BigInt(b.output)),
+    tools: a.tools === undefined || b.tools === undefined ? undefined : String(BigInt(a.tools) + BigInt(b.tools)),
   };
 }
 export function content(input: Input) {
@@ -45,6 +46,8 @@ function counts(value: unknown): Counts {
   const v = object(value);
   for (const key of ["input", "cached", "output"] as const)
     if (typeof v[key] !== "string" || !/^\d{1,40}$/.test(v[key])) throw Error("InvalidPlanUsage");
+  if (v.tools !== undefined && (typeof v.tools !== "string" || !/^\d{1,40}$/.test(v.tools)))
+    throw Error("InvalidPlanUsage");
   const out = v as Counts;
   if (BigInt(out.cached) > BigInt(out.input)) throw Error("InvalidPlanUsage");
   return out;
@@ -99,6 +102,7 @@ export class Roadmap {
   counts: Record<string, Counts> = Object.create(null);
   unassigned = zero();
   baseline: Counts | null = null;
+  tools_baseline: string | null = null;
   known = false;
   partial = true;
   limited = false;
@@ -136,6 +140,12 @@ export class Roadmap {
       delta.cached = String(BigInt(delta.cached) > BigInt(delta.input) ? BigInt(delta.input) : BigInt(delta.cached));
       this.baseline = sample;
     }
+    if (this.tools_baseline !== null) {
+      const tools = usage.tools - BigInt(this.tools_baseline);
+      if (tools >= 0n) delta.tools = String(tools);
+      else this.partial = true;
+    }
+    this.tools_baseline = String(usage.tools);
     if (this.limited) {
       this.unassigned = add(this.unassigned, delta);
       return;
@@ -287,6 +297,10 @@ export class Roadmap {
       throw Error("InvalidRoadmap");
     road.tail_node = v.tail_node as string | null;
     if (live && v.baseline !== null) road.baseline = counts(v.baseline);
+    if (v.tools_baseline != null) {
+      if (typeof v.tools_baseline !== "string" || !/^\d{1,40}$/.test(v.tools_baseline)) throw Error("InvalidRoadmap");
+      if (live) road.tools_baseline = v.tools_baseline;
+    }
     if (!live) {
       road.last = "";
       road.tail_node = null;
@@ -299,6 +313,7 @@ export class Roadmap {
       through: this.state.through,
       unassigned: this.unassigned,
       baseline: this.baseline,
+      tools_baseline: this.tools_baseline,
       pending: this.pending,
       support: this.support,
       receipts: this.receipts,
