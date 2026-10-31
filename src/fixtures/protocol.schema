@@ -1142,3 +1142,5 @@ $.snapshot.conversations[].activity_plan?.unassigned.tools?: string
 $.snapshot.conversations[].activity_plan?.known: bool
 $.snapshot.conversations[].activity_plan?.partial: bool
 $.snapshot.conversations[].activity_plan?.limited: bool
+$.snapshot.conversations[].activity_plan?.focus: optional
+$.snapshot.conversations[].activity_plan?.focus?: string

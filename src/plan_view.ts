@@ -15,11 +15,15 @@ type Row = { node: Node; depth: number; continued?: boolean };
 const rowHeight = (row: Row) => (row.node.bump ? 2 : 1);
 export function tail(view: roadmap.Snapshot, count: number) {
   const all: Row[] = [];
+  const episodes: Node[] = [];
   for (const goal of view.nodes.filter(n => n.kind === "goal")) {
-    for (const episode of view.nodes.filter(n => n.parent === goal.id)) {
-      all.push({ node: episode, depth: 0 });
-      for (const step of view.nodes.filter(n => n.parent === episode.id)) all.push({ node: step, depth: 1 });
-    }
+    episodes.push(...view.nodes.filter(n => n.parent === goal.id));
+  }
+  // Returning to an older episode keeps its latest work in the tail.
+  const ordered = [...episodes.filter(n => n.id !== view.focus), ...episodes.filter(n => n.id === view.focus)];
+  for (const episode of ordered) {
+    all.push({ node: episode, depth: 0 });
+    for (const step of view.nodes.filter(n => n.parent === episode.id)) all.push({ node: step, depth: 1 });
   }
   let rows: Row[] = [],
     used = 0;
@@ -88,19 +92,14 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
   row(3, "  Episode / step", metric(["Tokens", "Calls", "Cached"]), "faint");
   let y = 4;
   rows.forEach(({ node, depth, continued }) => {
-    const closed =
+    const focused = node.id === view.focus,
+      closed =
         node.state === "done" ||
         node.state === "abandoned" ||
         (node.state === "failed" && node.bump?.state === "resolved"),
-      tone: palette.Token = closed
-        ? "muted"
-        : node.state === "planned"
-          ? "faint"
-          : node.kind === "episode" || node.state === "active"
-            ? "strong"
-            : "text";
+      tone: palette.Token = focused ? "strong" : closed ? "muted" : node.state === "planned" ? "faint" : "text";
     const prefix = "  " + "  ".repeat(depth),
-      marker = node.state === "active" ? "▶" : " ",
+      marker = focused ? "▶" : " ",
       issue = node.bump ? "!" : " ",
       counts = view.counts[node.id] ?? roadmap.zero(),
       suffix = node.state === "planned" ? " (planned)" : continued ? " (continued)" : "";
@@ -109,7 +108,7 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
       const style = new palette.Style({ fg: color, bg: "surface", bold });
       w.write(`\x1b[${rect.y + y + 1};${rect.x + column + 1}H${style.sgr()}${value}`);
     };
-    if (node.state === "active") mark(prefix.length, marker, "accent", true);
+    if (focused) mark(prefix.length, marker, "accent", true);
     if (node.bump) mark(prefix.length + 2, "!", node.bump.state === "open" ? "warm" : "muted");
     y++;
     if (node.bump) {

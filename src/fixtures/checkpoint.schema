@@ -521,6 +521,8 @@ $.conversations[].activity_plan?.view.unassigned.tools?: string
 $.conversations[].activity_plan?.view.known: bool
 $.conversations[].activity_plan?.view.partial: bool
 $.conversations[].activity_plan?.view.limited: bool
+$.conversations[].activity_plan?.view.focus: optional
+$.conversations[].activity_plan?.view.focus?: string
 $.conversations[].activity_plan?.through: usize
 $.conversations[].activity_plan?.tools_baseline: optional
 $.conversations[].activity_plan?.tools_baseline?: string

@@ -299,9 +299,12 @@ There is no selection or scrolling; Escape or a click outside closes the panel.
 TODO lists express intent. Bounded tool outcomes and commentary support
 problems marked ! only on the affected step. Each problem has a short explanation
 below it; resolved problems keep a dimmed ! and a resolved label.
-A green ▶ means running. Completed work is dimmed; future work is labeled
+One green ▶ marks the current or most recently worked-on episode. Completed steps are dimmed; future work is labeled
 planned. Tokens, tool-call counts and cached input appear in columns beside the
-work and in the total row. Missing usage fields stay blank.
+work and in the total row. Missing usage fields stay blank. The episode marker
+follows the latest attributed work, independently of completion labels or open
+setbacks. It survives pauses and reloads; the agent status shows whether it is
+running. Older plans without the optional focus field show no marker.
 Live costs count observed intervals after an opening baseline, include cached input once, exclude child
 and summarizer usage, and retain unassigned cost. They are partial coverage,
 not full transcript accounting. Plan and pending intervals survive reload;

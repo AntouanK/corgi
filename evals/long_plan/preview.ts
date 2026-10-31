@@ -35,6 +35,7 @@ for (const directory of process.argv.slice(2)) {
         }
         const view: roadmap.Snapshot = {
           nodes: c.state.nodes,
+          focus: roadmap.focusEpisode(c.state.nodes, c.state.spans),
           counts,
           unassigned: { ...ledger.unattributed, tools: String(unassignedTools) },
           known: ledger.known,

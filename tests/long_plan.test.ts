@@ -21,12 +21,14 @@ class Plans extends Summaries {
       ["g", "e", "s"],
     );
     this.assertTrue(first.partial);
+    this.assertEqual(first.focus, "e");
     const viewer = await Viewer.create(this);
     const screen = async () => screen_text((await viewer.poll()).data, 100, 30).join("\n");
     try {
       await viewer.input("\x02P");
       await this.until(async () => (await screen()).includes("Restore terminal focus"));
       const beforeNavigation = await screen();
+      this.assertEqual((beforeNavigation.match(/▶/g) ?? []).length, 1);
       await viewer.input("\x1b[6~");
       await viewer.input("\r");
       this.assertEqual(await screen(), beforeNavigation);

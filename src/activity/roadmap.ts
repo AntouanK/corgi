@@ -7,6 +7,7 @@ export type Counts = { input: string; cached: string; output: string; tools?: st
 export type Input = { state: plan.State; events: plan.Event[]; support: plan.Event[] };
 export type Snapshot = {
   nodes: plan.Node[];
+  focus: string | null;
   counts: Record<string, Counts>;
   unassigned: Counts;
   known: boolean;
@@ -34,6 +35,7 @@ export function content(input: Input) {
 }
 export const emptyView = (): Snapshot => ({
   nodes: [],
+  focus: null,
   counts: {},
   unassigned: zero(),
   known: false,
@@ -83,8 +85,11 @@ export function decode(value: unknown): Snapshot {
     ],
   ).state.nodes;
   const ledger = object(v.counts);
+  const focus = v.focus ?? null;
+  if (focus !== null && !nodes.some(n => n.id === focus && n.kind === "episode")) throw Error("InvalidRoadmap");
   return {
     nodes,
+    focus: focus as string | null,
     counts: Object.fromEntries(nodes.map(n => [n.id, counts(ledger[n.id])])),
     unassigned: counts(v.unassigned),
     known: v.known,
@@ -93,9 +98,17 @@ export function decode(value: unknown): Snapshot {
   };
 }
 
+/** Latest attributed work determines focus; completion and unassigned events do not move it. */
+export function focusEpisode(nodes: plan.Node[], spans: plan.Span[], previous: string | null = null): string | null {
+  const latest = spans.findLast(s => s.node !== null),
+    step = nodes.find(n => n.id === latest?.node && n.kind === "step");
+  return step?.parent ?? previous;
+}
+
 /** Observed intervals only. The first sample is a baseline, never historical cost assigned to new work. */
 export class Roadmap {
   state = plan.empty();
+  focus: string | null = null;
   pending: plan.Event[] = [];
   support: plan.Event[] = [];
   receipts: { event: number; tokens: Counts }[] = [];
@@ -196,6 +209,7 @@ export class Roadmap {
       return false;
     }
     const parents = new Map(applied.nodes.map(n => [n.id, n.parent]));
+    this.focus = focusEpisode(applied.nodes, applied.spans, this.focus);
     this.tail_node = applied.spans.at(-1)?.node ?? null;
     for (const node of applied.nodes) this.counts[node.id] ??= zero();
     for (const r of this.receipts.filter(r => r.event <= applied.through)) {
@@ -226,6 +240,7 @@ export class Roadmap {
   view(): Snapshot {
     return {
       nodes: this.state.nodes,
+      focus: this.focus,
       counts: this.counts,
       unassigned: this.receipts.reduce((n, r) => add(n, r.tokens), this.unassigned),
       known: this.known,
@@ -245,6 +260,7 @@ export class Roadmap {
     };
     road.state = { nodes: saved.nodes, spans: [], through: integer("through") };
     Object.assign(road, {
+      focus: saved.focus,
       counts: saved.counts,
       unassigned: counts(v.unassigned),
       known: saved.known,

@@ -38,6 +38,7 @@ function fixture(): roadmap.Snapshot {
     },
   ];
   view.known = true;
+  view.focus = "e";
   view.counts = {
     g: { input: "2100", cached: "1000", output: "100", tools: "6" },
     e: { input: "2100", cached: "1000", output: "100", tools: "6" },
@@ -141,7 +142,8 @@ test("long plans follow appended work, retain its episode, and total hidden work
     expect(planView.tail(view, planView.capacity(rect)).rows.every(r => r.depth <= 1)).toBe(true);
     view.unassigned = { input: "1300", cached: "0", output: "0", tools: "1" };
     view.nodes.push({ ...view.nodes[2], id: "latest", title: "Verify final repair", state: "active", bump: null });
-    expect(draw()).toContain("▶   Verify final repair");
+    expect(draw()).toContain("Verify final repair");
+    expect((terminal.text().match(/▶/g) ?? []).length).toBe(1);
     expect(terminal.text()).toContain("48 earlier items");
     expect(
       terminal
@@ -152,6 +154,39 @@ test("long plans follow appended work, retain its episode, and total hidden work
     expect(terminal.text()).toContain("1k tokens unassigned");
     expect(planView.key("page_down")).toBeNull();
     expect(planView.key("end")).toBeNull();
+  } finally {
+    terminal.destroy();
+  }
+});
+
+test("one episode marker survives completion, pause and retry checkpoints", () => {
+  const view = fixture(),
+    rect = planView.geometry(100, 18),
+    terminal = new Terminal(100, 18);
+  try {
+    for (const state of ["active", "done", "active"] as const) {
+      view.nodes.forEach(n => {
+        n.state = state;
+        n.bump = null;
+      });
+      const out = new Writer();
+      planView.draw(out, rect, "Agent", view);
+      terminal.feed(out.buffered());
+      expect((terminal.text().match(/▶/g) ?? []).length).toBe(1);
+      expect(terminal.text().split("\n")[rect.y + 4]).toContain("▶   Correct retry offsets");
+    }
+    view.nodes.push(
+      { ...view.nodes[1], id: "e2", title: "Verify final repair" },
+      { ...view.nodes[2], id: "s2", parent: "e2", title: "Run integration suite" },
+    );
+    view.focus = "e2";
+    const out = new Writer();
+    planView.draw(out, rect, "Agent", view);
+    terminal.feed(out.buffered());
+    expect(terminal.text()).toContain("▶   Verify final repair");
+    expect((terminal.text().match(/▶/g) ?? []).length).toBe(1);
+    view.focus = "e";
+    expect(planView.tail(view, 3).rows.map(r => r.node.id)).toEqual(["e", "s"]);
   } finally {
     terminal.destroy();
   }

@@ -190,10 +190,40 @@ test("wire plans reject unsafe IDs, controls, fabricated parents, future bumps a
     (v: roadmap.Snapshot) => {
       v.counts.g.input = "-1";
     },
+    (v: roadmap.Snapshot) => {
+      v.focus = "s";
+    },
   ]) {
     const v = structuredClone(road.view());
     mutate(v);
     expect(() => roadmap.decode(v)).toThrow();
   }
   expect(roadmap.decode(undefined).nodes).toEqual([]);
+});
+
+test("focus follows attributed work and survives status changes, unassigned events and recovery", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Running tests", new List(), usage(0n), 1);
+  road.apply(road.request()!, patch());
+  expect(road.view().focus).toBe("e");
+  road.observe("t", "idle", "Finished", new List(), usage(10n), 2);
+  road.apply(
+    road.request()!,
+    JSON.stringify({ nodes: nodes().map(n => ({ ...n, state: "done" })), spans: [{ from: 2, to: 2, node: null }] }),
+  );
+  expect(road.view().focus).toBe("e");
+  road.observe("next", "working", "Again", new List(), usage(10n), 3);
+  road.apply(road.request()!, patch(nodes(), 3));
+  expect(road.view().focus).toBe("e");
+  const second = [
+    { ...nodes()[1], id: "e2", title: "Check integration behavior" },
+    { ...nodes()[2], id: "s2", parent: "e2" },
+  ];
+  road.observe("next", "working", "Run integration suite", new List(), usage(20n), 4);
+  road.apply(road.request()!, JSON.stringify({ nodes: second, spans: [{ from: 4, to: 4, node: "s2" }] }));
+  expect(road.view().focus).toBe("e2");
+  const saved = JSON.parse(JSON.stringify(road));
+  for (const live of [true, false]) expect(roadmap.Roadmap.restore(saved, live).view().focus).toBe("e2");
+  delete saved.view.focus;
+  expect(roadmap.Roadmap.restore(saved, true).view().focus).toBeNull();
 });
