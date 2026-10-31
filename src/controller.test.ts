@@ -5239,6 +5239,10 @@ test("the plan panel opens through its action and routes keyboard and mouse to t
   expect(s.plan_card.collapsed.has("e")).toBe(true);
   await s.perform({ name: "plan-select", value: "e" });
   expect(s.plan_card.collapsed.has("e")).toBe(false);
+  await s.input(bytes("\x1b[6~"));
+  expect(s.plan_card.selected).toBe("s");
+  await s.input(bytes("\x1b[H"));
+  expect(s.plan_card.selected).toBe("e");
   await s.input(bytes("\x1b[27u"));
   expect(s.plan_card.actor).toBe(0);
 });

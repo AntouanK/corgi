@@ -2569,20 +2569,17 @@ export class Controller {
         break;
       case "plan-next":
       case "plan-prev":
+      case "plan-page-next":
+      case "plan-page-prev":
+      case "plan-scroll-next":
+      case "plan-scroll-prev":
+      case "plan-first":
+      case "plan-last":
       case "plan-toggle":
       case "plan-select": {
         const view = this.runtime.conversations.find(c => c.id === this.plan_card.actor)?.activity_plan;
         if (!view) break;
-        if (act.name === "plan-toggle") this.plan_card.toggle();
-        else if (
-          act.name === "plan-select" &&
-          typeof act.value === "string" &&
-          view.nodes.some(n => n.id === act.value)
-        ) {
-          if (this.plan_card.selected === act.value) this.plan_card.toggle();
-          else this.plan_card.selected = act.value;
-        } else if (act.name === "plan-next" || act.name === "plan-prev")
-          this.plan_card.move(view, act.name === "plan-next" ? 1 : -1);
+        this.plan_card.navigate(view, act, planView.capacity(planView.geometry(this.width, this.height)));
         this.dirty = true;
         break;
       }
@@ -6696,7 +6693,8 @@ export class Controller {
       const rect = planView.geometry(this.width, this.height),
         view = this.runtime.conversations.find(c => c.id === this.plan_card.actor)?.activity_plan;
       if (!release && rect.contains(x, y)) {
-        if (button === 64 || button === 65) await this.perform({ name: button === 64 ? "plan-prev" : "plan-next" });
+        if (button === 64 || button === 65)
+          await this.perform({ name: button === 64 ? "plan-scroll-prev" : "plan-scroll-next" });
         else if (button === 0 && view) {
           const id = planView.hit(rect, x, y, this.plan_card, view);
           if (id) await this.perform({ name: "plan-select", value: id });

@@ -289,8 +289,11 @@ because missing items may still be open.
 `CORGI_LONG_PLAN=1` opts a daemon into goal → episode → step inference through
 its existing activity worker. The plan is separate from lifecycle and native
 OMP activity labels. Select an agent and use prefix P or the command menu's
-Long-term plan to inspect it. Up/down select, Enter folds, mouse selects and
-scrolls, and Escape closes.
+Long-term plan to inspect it. The tree has two levels, episodes and steps,
+with one row per item and the goal in the header. Up/down select, Enter folds,
+mouse selects and scrolls, and Escape closes. Page Up/Down move a page;
+Home/End jump to the ends. A scrollbar and row range show hidden work, and an
+episode name stays above its steps when its row scrolls away.
 
 TODO lists express intent. Bounded tool outcomes and commentary support
 problems marked ! only on the affected step. Resolved problems keep a dimmed !.

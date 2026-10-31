@@ -20,6 +20,7 @@ const session = document.querySelector<HTMLSelectElement>("#session")!,
   screen = document.querySelector<HTMLElement>("#screen")!,
   position = document.querySelector<HTMLElement>("#position")!,
   notes = document.querySelector<HTMLElement>("#notes")!;
+const height = document.querySelector<HTMLSelectElement>("#height")!;
 const state = new planView.State();
 let cols = 110,
   rows = 34,
@@ -36,7 +37,7 @@ const color = (name: string | null, fallback: palette.Token) =>
   name?.startsWith("#") ? name : `rgb(${palette.colors[(name ?? fallback) as palette.Token].join(",")})`;
 function render() {
   cols = Math.max(30, Math.min(narrow ? 64 : 116, Math.floor((document.querySelector("#wrap")!.clientWidth - 2) / 9)));
-  rows = cols < 55 ? 30 : 34;
+  rows = Number(height.value);
   const out = new Writer();
   planView.draw(out, planView.geometry(cols, rows), current().id, view(), state);
   const fragment = document.createDocumentFragment();
@@ -65,24 +66,8 @@ function change() {
   render();
 }
 function perform(action: Action) {
-  switch (action.name) {
-    case "plan-next":
-      state.move(view(), 1);
-      break;
-    case "plan-prev":
-      state.move(view(), -1);
-      break;
-    case "plan-toggle":
-      state.toggle();
-      break;
-    case "plan-select":
-      if (state.selected === action.value) state.toggle();
-      else state.selected = String(action.value);
-      break;
-    case "plan-close":
-      state.selected = "";
-      break;
-  }
+  if (action.name === "plan-close") state.selected = "";
+  else state.navigate(view(), action, planView.capacity(planView.geometry(cols, rows)));
   render();
 }
 screen.tabIndex = 0;
@@ -96,6 +81,10 @@ screen.addEventListener("keydown", e => {
         ArrowRight: "right",
         Enter: "\r",
         Escape: "\x1b",
+        PageDown: "page_down",
+        PageUp: "page_up",
+        Home: "home",
+        End: "end",
       } as Record<string, string>
     )[e.key] ?? e.key;
   const action = planView.key(input);
@@ -120,13 +109,22 @@ screen.addEventListener(
   "wheel",
   e => {
     e.preventDefault();
-    perform({ name: e.deltaY > 0 ? "plan-next" : "plan-prev" });
+    perform({ name: e.deltaY > 0 ? "plan-scroll-next" : "plan-scroll-prev" });
   },
   { passive: false },
 );
 slider.addEventListener("input", render);
 session.addEventListener("change", change);
+height.addEventListener("change", render);
 window.addEventListener("resize", render);
+document.querySelector("#long")!.addEventListener("click", () => {
+  session.value = data.toSorted(
+    (a, b) => b.checkpoints.at(-1)!.view.nodes.length - a.checkpoints.at(-1)!.view.nodes.length,
+  )[0].key;
+  height.value = "24";
+  change();
+  screen.focus({ preventScroll: true });
+});
 document.querySelector("#narrow")!.addEventListener("click", () => {
   narrow = !narrow;
   render();

@@ -15,8 +15,9 @@ CORGI_LONG_PLAN=1 ./go.ts --env long-plan --no-kill
 
 Keep Activity summaries enabled in Clever Corgi. Select an agent, then use
 **prefix P**, the command menu's **Long-term plan**, or `corgi action plan`.
-Up/down select; Enter folds a goal or episode; mouse clicks select/fold and the
-wheel moves through the panel. Escape closes it. Native OMP labels stay native;
+Up/down select; Enter folds an episode; mouse clicks select/fold and the wheel
+scrolls the panel. Page Up/Down move a page; Home/End jump to the ends. Escape
+closes it. Native OMP labels stay native;
 the optional plan uses their intent as evidence without replacing them.
 
 The worker samples commentary, recent/running tools, bounded result excerpts,
@@ -85,7 +86,11 @@ bun evals/long_plan/preview.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 
 `preview.ts` builds `.lavish/long-plan-integrated.html` using the actual
 `src/plan_view.ts` renderer and Corgi palette. It includes recorded failures and
-checkpoint controls. The older `view.ts` remains the original design study.
+checkpoint controls. The default 24-row terminal shows 10 of the real rebase
+replay's 16 episode/step rows. “Long example” selects that replay; the height
+control demonstrates shorter and taller terminals. A scrollbar, visible range
+and above/below counts show overflow. The older `view.ts` remains the original
+design study.
 `live-signals` runs production transcript readers and their bounded evidence at
 the offline checkpoints. It is a conservative signal-loss probe: it does not
 simulate the live eight-second scheduler, hooks or app-server observations.
@@ -147,9 +152,9 @@ The earlier pilot below remains historical context, not the current scorecard.
 
 ## Product contract
 
-The view has three levels:
+The tree displays two levels, one line per item. The **goal**, the user's outcome
+retained across turns and compactions, stays in the header as context.
 
-- **Goal:** the user's outcome, retained across turns and compactions.
 - **Episode:** one coherent subproblem, such as repairing branch history or
   getting macOS CI to build. Reading, editing, testing, retries and committing
   can all belong to one episode.
@@ -168,10 +173,13 @@ an interruption or a status question does not automatically create a goal.
 Returning to an episode preserves its identity; a new attempt can add a step.
 Only explicitly announced future work becomes a planned step, with no tokens yet.
 
-The prototype keeps episodes collapsed by default, expands the selected episode,
-aligns token totals in one column and exposes evidence on selection. Replay
-controls belong to the eval, not to the proposed live product. Narrow layouts
-remove the sidebar and retain access to the selected row's detail.
+Episodes can fold; their steps use one indentation level. Rows align tokens,
+tool calls and cached input in columns. Selection shows the subtitle, problem
+detail and usage breakdown. Narrow terminals keep the remaining metrics in that
+detail area. The list scrolls independently of the header and detail area; an
+offscreen episode heading remains visible as context for its steps. Replay
+controls belong to the eval, not to the live product. The planner retains goal
+identity internally so changing this presentation does not rewrite history.
 
 ## Signals and accounting
 
