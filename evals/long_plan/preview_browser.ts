@@ -7,6 +7,11 @@ import { grid } from "../../site/terminal";
 type Replay = {
   key: string;
   id: string;
+  label: string;
+  provider: string;
+  cohort: "routine" | "long" | "probe" | "excerpt";
+  events: number;
+  turns: number;
   ablation: string;
   model: string;
   source: string;
@@ -19,15 +24,29 @@ const session = document.querySelector<HTMLSelectElement>("#session")!,
   screen = document.querySelector<HTMLElement>("#screen")!,
   position = document.querySelector<HTMLElement>("#position")!,
   notes = document.querySelector<HTMLElement>("#notes")!;
+const dataset = document.querySelector<HTMLElement>("#dataset")!;
 const height = document.querySelector<HTMLSelectElement>("#height")!;
 let cols = 110,
   rows = 34,
   narrow = false;
-for (const entry of data) {
-  const option = document.createElement("option");
-  option.value = entry.key;
-  option.textContent = `${entry.id} · ${entry.ablation} · ${entry.model}`;
-  session.append(option);
+const groups: Record<Replay["cohort"], string> = {
+  long: "Long development sessions",
+  routine: "Routine development sessions",
+  excerpt: "Earlier short replays",
+  probe: "Synthetic probes",
+};
+for (const cohort of ["long", "routine", "excerpt", "probe"] as const) {
+  const entries = data.filter(e => e.cohort === cohort);
+  if (!entries.length) continue;
+  const group = document.createElement("optgroup");
+  group.label = groups[cohort];
+  session.append(group);
+  for (const entry of entries) {
+    const option = document.createElement("option");
+    option.value = entry.key;
+    option.textContent = `${entry.label} · ${entry.provider} · ${entry.events} events · ${entry.turns} turns${cohort === "probe" || cohort === "excerpt" ? " · " + entry.ablation : ""}`;
+    group.append(option);
+  }
 }
 const current = () => data.find(c => c.key === session.value)!;
 const view = () => current().checkpoints[Number(slider.value)].view;
@@ -37,7 +56,7 @@ function render() {
   cols = Math.max(30, Math.min(narrow ? 64 : 116, Math.floor((document.querySelector("#wrap")!.clientWidth - 2) / 9)));
   rows = Number(height.value);
   const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().id, view());
+  planView.draw(out, planView.geometry(cols, rows), current().label, view());
   const fragment = document.createDocumentFragment();
   for (const row of grid(out.buffered(), cols, rows)) {
     const line = document.createElement("div");
@@ -54,7 +73,8 @@ function render() {
   }
   screen.replaceChildren(fragment);
   screen.style.width = `${cols * 9}px`;
-  position.textContent = `${Number(slider.value) + 1}/${current().checkpoints.length} · event ${current().checkpoints[Number(slider.value)].through}`;
+  position.textContent = `${Number(slider.value) + 1}/${current().checkpoints.length} · event ${current().checkpoints[Number(slider.value)].through}/${current().events}`;
+  dataset.textContent = `${groups[current().cohort]} · ${current().events} events · ${current().turns} user turns · ${current().checkpoints.length} checkpoints`;
   notes.textContent = `${current().model} · ${current().ablation} · source ${current().source.slice(0, 12)} · ${current().failures.length ? "Eval findings: " + current().failures.join("; ") : "All reviewed assertions passed"}`;
 }
 function change() {
@@ -71,12 +91,19 @@ session.addEventListener("change", change);
 height.addEventListener("change", render);
 window.addEventListener("resize", render);
 document.querySelector("#long")!.addEventListener("click", () => {
-  session.value = data.toSorted(
-    (a, b) => b.checkpoints.at(-1)!.view.nodes.length - a.checkpoints.at(-1)!.view.nodes.length,
-  )[0].key;
+  session.value = data.toSorted((a, b) => b.events - a.events)[0].key;
   height.value = "18";
   change();
   screen.focus({ preventScroll: true });
+});
+const routine = document.querySelector<HTMLButtonElement>("#routine")!;
+routine.hidden = !data.some(d => d.cohort === "routine");
+routine.addEventListener("click", () => {
+  const bumps = (d: Replay) => d.checkpoints.at(-1)!.view.nodes.filter(n => n.bump).length;
+  session.value = data
+    .filter(d => d.cohort === "routine")
+    .toSorted((a, b) => bumps(a) - bumps(b) || b.events - a.events)[0].key;
+  change();
 });
 document.querySelector("#narrow")!.addEventListener("click", () => {
   narrow = !narrow;
@@ -84,7 +111,7 @@ document.querySelector("#narrow")!.addEventListener("click", () => {
 });
 document.querySelector("#ansi")!.addEventListener("click", () => {
   const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().id, view());
+  planView.draw(out, planView.geometry(cols, rows), current().label, view());
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([out.buffered()], { type: "text/plain" }));
   a.download = "corgi-plan.ansi";

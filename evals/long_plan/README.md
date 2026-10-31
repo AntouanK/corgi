@@ -57,7 +57,7 @@ permission, or approach. **!** marks a problem only on the affected step;
 it never propagates to parents.
 A setback adds one explanation line beneath its step. Resolved problems keep a
 dimmed **!** and a resolved label; the explanation remains visible.
-A green **▶** means running. Completed work is dimmed; future work is labeled
+One green **▶** marks the current or most recently worked-on episode. Completed steps are dimmed; future work is labeled
 planned. Available tool-call counts and cached input remain visible.
 An approach setback means rework caused by a disproved committed approach,
 not every exploratory hypothesis. Expected red tests, no-match searches,
@@ -95,6 +95,73 @@ design study.
 `live-signals` runs production transcript readers and their bounded evidence at
 the offline checkpoints. It is a conservative signal-loss probe: it does not
 simulate the live eight-second scheduler, hooks or app-server observations.
+
+## Full-session follow-up
+
+The browser review's original historical set had only 213 events across three
+failure-oriented excerpts. It now separates full captured development sessions,
+earlier short replays and synthetic probes. Each option shows its event and user
+turn counts. “Routine example” opens a routine case with the fewest recorded
+setbacks; “Long example” opens the longest captured history.
+
+The new private dataset freezes five complete local transcript files without
+`through_line` cuts. The plan-project conversation was still active, so its 988
+events are the full captured history at the freeze point, not a finished task.
+All events are retained; the existing importer still bounds individual text
+excerpts before inference.
+
+| Captured session | Provider | Events | User turns | Coverage |
+| --- | --- | ---: | ---: | --- |
+| This long-term plan project | Codex | 988 | 22 | Eval design, implementation, integration and repeated UI feedback |
+| Corgi in the browser | Claude | 831 | 15 | Extended research, approach changes, implementation and verification |
+| Custom keybindings | Codex | 210 | 18 | Routine design iteration; zero setback markers |
+| Linux ARM64 builds | Claude | 107 | 3 | Implementation and validation; one resolved test failure |
+| Schema discussion | Claude | 89 | 6 | Routine research and follow-up questions; zero setback markers |
+
+The three routine replays pass 15 reviewed checks with no invalid model patches.
+One original annotation incorrectly required the initial schema explanation and
+the user's later redesign request to share a goal; the reviewed anchor starts at
+that explicit redesign request instead. The original report and the corrected
+review manifest are both retained. The counts above describe this selected set,
+not the distribution of everyday coding sessions.
+
+Both long replays reached the end. The plan-project replay produced 14 episodes
+and 60 steps over 74 checkpoints; the browser replay produced 15 episodes and 73
+steps over 59 accepted checkpoints. They assigned 99.2% and 98.7% of recorded
+tokens respectively. The review adds event anchors for episode continuity,
+separate subproblems, recovery evidence and ordinary feedback without setbacks.
+These are development checks added after inspecting the histories, not holdouts.
+
+The expanded set passes 32/34 reviewed checks. Both remaining failures concern
+the same rule: a failed check attempt should stay failed after a successful
+retry. The model sometimes changes that step to done while retaining its
+resolved bump. The browser run also retains three invalid attempts/errors:
+two attempts to move existing history, followed later by an invalid title.
+The first pair stopped that run; it resumed from the last accepted checkpoint
+with a concrete correction. None of these failures are erased by completing the
+replay. The candidate still does not meet the clean-eval acceptance gate.
+
+Frozen inputs, manifests, complete model patches and reports stay ignored under
+`evals/results/long-plan/expanded-dataset` and the `full-*-v1` run directories.
+Manifests can set `label`, `origin` (`historical` or `synthetic`) and `cohort`
+(`routine`, `long` or `probe`) to organize browser replays without changing the
+model's evidence. Existing fixtures remain useful as targeted probes; they are
+not presented as typical development sessions.
+
+Long model replays can resume with `--resume --out EXISTING_RUN_DIRECTORY` and
+the same model, manifest, batch, signal mode and prompt. The runner validates
+source hashes, reuses only accepted checkpoints, retains rejected attempts and
+archives the prior report. Repairs name any attempted identity/parent changes;
+the reducer still rejects rewritten history. Resuming a completed replay makes
+no additional model calls. Flat-baseline resume is not supported.
+
+The single episode marker follows the last attributed work span, independently
+of inferred completion labels. Null/unassigned events and pauses retain focus;
+new work in another episode moves it. Returning to an older episode brings its
+tail into view. Focus survives reload and cold recovery, defaults to null in old
+snapshots, and is not an agent-running indicator. In the rebase regression,
+checkpoints 1, 2 and 3 keep the same marker even though the middle checkpoint is a
+completed turn. Runtime/viewer protocol 3 and saved-format 6 remain unchanged.
 
 ## 2026-10-31 results
 

@@ -12,6 +12,9 @@ import type { Check } from "./score";
 
 export type Case = {
   id: string;
+  label?: string;
+  origin?: "historical" | "synthetic";
+  cohort?: "routine" | "long" | "probe";
   provider: Provider;
   source: string;
   split: "development" | "holdout";
@@ -20,6 +23,23 @@ export type Case = {
 };
 const json = (v: unknown) => JSON.stringify(v, (_, value) => (typeof value === "bigint" ? String(value) : value), 2);
 const write = (file: string, value: unknown) => fs.writeFileSync(file, json(value) + "\n");
+function correction(state: plan.State, raw: string, invalid: string) {
+  let identities = "";
+  try {
+    identities = history
+      .array(history.object(JSON.parse(raw)).nodes)
+      .map(item => {
+        const next = history.object(item),
+          old = state.nodes.find(n => n.id === next.id);
+        return old && (old.parent !== next.parent || old.kind !== next.kind)
+          ? `Keep existing ${old.id} as ${old.kind} under ${old.parent}. Use a NEW ID for work in another episode.`
+          : "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  } catch {}
+  return `Previous patch was rejected: ${invalid}. Return a corrected patch. ${identities}`;
+}
 
 async function main() {
   const args = process.argv.slice(2),
@@ -30,7 +50,7 @@ async function main() {
   const manifest = option("--manifest");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat] [--out DIR]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat] [--out DIR] [--resume]",
     );
   const selection = option("--case"),
     model = option("--model", "claude:claude-haiku-5-5"),
@@ -79,6 +99,7 @@ async function main() {
     instructions: string;
     schema: string;
     source_hashes: typeof sourceHashes;
+    resume_source_hashes?: typeof sourceHashes;
     cases: unknown[];
     failures: number;
   } = {
@@ -93,6 +114,25 @@ async function main() {
     cases: [],
     failures: 0,
   };
+  const resume = args.includes("--resume"),
+    prior = resume ? JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8")) : null;
+  if (prior) {
+    for (const key of ["model", "baseline", "ablation", "batch", "manifest_hash", "instructions", "schema"] as const)
+      if (prior[key] !== report[key]) throw Error(`ResumeConfigurationChanged:${key}`);
+    if (baseline) throw Error("FlatResumeUnsupported");
+    write(path.join(dir, `before-resume-${Date.now()}.report.json`), prior);
+    report.source_hashes = prior.source_hashes;
+    report.resume_source_hashes = sourceHashes;
+    report.cases = prior.cases.filter((c: { id: string }) => !selected.some(s => s.id === c.id));
+    report.failures = prior.cases
+      .filter((c: { id: string }) => !selected.some(s => s.id === c.id))
+      .reduce(
+        (sum: number, c: { errors: string[]; checks: { pass: boolean }[] }) =>
+          sum + c.errors.length + c.checks.filter(check => !check.pass).length,
+        0,
+      );
+  }
+  if (!args.includes("--prepare") && !prior) write(path.join(dir, "report.json"), report);
   try {
     for (const c of selected) {
       if (!/^[a-z0-9_-]+$/.test(c.id)) throw Error("InvalidCaseId");
@@ -103,7 +143,15 @@ async function main() {
         data.warnings.push(`Prefix excerpt ending at source line ${c.through_line}.`);
       }
       if (data.warnings.some(w => w.startsWith("Fork/child"))) throw Error("ForkRequiresOwnershipFilter");
-      write(path.join(dir, `${c.id}.history.json`), data);
+      const historyPath = path.join(dir, `${c.id}.history.json`),
+        callsPath = path.join(dir, `${c.id}.calls.json`);
+      if (
+        resume &&
+        fs.existsSync(historyPath) &&
+        JSON.parse(fs.readFileSync(historyPath, "utf8")).sha256 !== data.sha256
+      )
+        throw Error("ResumeSourceChanged");
+      write(historyPath, data);
       if (args.includes("--prepare")) {
         console.log(
           `${c.id}: ${data.events.length} events, ${data.receipts.length} receipts, ${history.total(data.receipts.reduce((t, r) => history.add(t, r.tokens), history.zero()))} tokens`,
@@ -116,10 +164,16 @@ async function main() {
         phaseId = "",
         phaseIndex = 0;
       const flatContext = new flat.Context();
-      const snapshots: plan.State[] = [],
-        calls: unknown[] = [],
-        errors: string[] = [];
+      const cached: { state?: plan.State; through: number; raw?: string; error?: string }[] =
+        resume && fs.existsSync(callsPath) ? JSON.parse(fs.readFileSync(callsPath, "utf8")) : [];
+      const snapshots: plan.State[] = cached.flatMap(call => (call.state ? [call.state] : [])),
+        calls: unknown[] = [...cached],
+        errors: string[] = prior?.cases.find((saved: { id: string }) => saved.id === c.id)?.errors.slice() ?? [];
+      state = snapshots.at(-1) ?? state;
+      if (state.through > data.events.length) throw Error("ResumePrefixChanged");
+      if (state.through) console.log(`${c.id}: resume at ${state.through}/${data.events.length}`);
       for (const batch of plan.batches(data.events, batchSize)) {
+        if (batch.at(-1)!.id <= state.through) continue;
         if (stopping.value) throw Error("Cancelled");
         const withhold = (e: history.Event) => ({
           ...e,
@@ -163,11 +217,15 @@ async function main() {
         let rawResponse: string | null = null;
         const attempts: unknown[] = [];
         let repairs: string[] = [];
+        const rejected = cached.findLast(call => call.error && call.through === batch.at(-1)!.id),
+          content = rejected?.raw
+            ? { ...input, correction: correction(state, rejected.raw, rejected.error!), rejected: rejected.raw }
+            : input;
         try {
           const request = {
             instructions: baseline ? flat.instructions : plan.instructions,
             schema: baseline ? flat.schema : plan.schemaFor(events[0].id, events.at(-1)!.id),
-            content: JSON.stringify(input),
+            content: JSON.stringify(content),
           };
           let response = await pool.infer(request, stopping);
           rawResponse = response.text();
@@ -183,7 +241,7 @@ async function main() {
                   ...request,
                   content: JSON.stringify({
                     ...input,
-                    correction: `Previous patch was rejected: ${invalid}. Return a corrected patch. Assign ONLY events ${events[0].id} through ${events.at(-1)!.id}.`,
+                    correction: `${correction(state, rawResponse, invalid)} Assign ONLY events ${events[0].id} through ${events.at(-1)!.id}.`,
                     rejected: rawResponse,
                   }),
                 },
@@ -252,7 +310,7 @@ async function main() {
           const tokens = plan.ledger(state, data, batch.at(-1)!.line);
           calls.push({
             through: state.through,
-            input,
+            input: content,
             raw: rawResponse,
             elapsed_ms: elapsed,
             attempts,
@@ -266,7 +324,7 @@ async function main() {
           errors.push(message);
           calls.push({
             through: batch.at(-1)!.id,
-            input,
+            input: content,
             raw: rawResponse,
             error: message,
             attempts,
@@ -281,6 +339,9 @@ async function main() {
       const checks = scoring.score(data, snapshots, c.checks),
         result = {
           id: c.id,
+          label: c.label,
+          origin: c.origin,
+          cohort: c.cohort,
           split: c.split,
           source_hash: data.sha256,
           warnings: data.warnings,

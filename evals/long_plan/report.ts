@@ -57,6 +57,7 @@ for (const directory of directories) {
     );
     results.push({
       id: result.id,
+      label: rubric.label ?? result.label,
       source_hash: data.sha256,
       accounting_hash: data.accounting_hash ?? (fs.existsSync(accounted) ? null : original.source_hashes["history.ts"]),
       checks,
@@ -78,6 +79,7 @@ for (const directory of directories) {
     p95_ms: quantile(0.95),
     inference_tokens: { input: String(input), cached: String(cached), output: String(output) },
     scorer_hash: history.hash(fs.readFileSync(path.join(import.meta.dir, "score.ts"), "utf8")),
+    manifest_hash: history.hash(fs.readFileSync(manifest, "utf8")),
     cases: results,
   };
   fs.writeFileSync(path.join(directory, "review.json"), JSON.stringify(summary, null, 2) + "\n");
