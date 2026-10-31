@@ -118,6 +118,34 @@ for await (const line of createInterface({ input: process.stdin })) {
           ? { action: control.action ?? (label === null ? "none" : "new"), label }
           : { label };
     if (schema && ("label" in control || "name" in control)) result = JSON.stringify(structured);
+    if (control.roadmap && "nodes" in properties) {
+      const input = JSON.parse(content),
+        from = input.assign_from,
+        to = input.assign_through;
+      const node = (id: string, parent: string | null, kind: string, title: string) => ({
+        id,
+        parent,
+        kind,
+        title,
+        subtitle: "Trace terminal focus through the event handler",
+        state: control.bump && kind === "step" ? "failed" : "active",
+        evidence: [to],
+        bump:
+          control.bump && kind === "step"
+            ? { kind: "verification", state: "open", detail: "Existing focus test fails", evidence: [to] }
+            : null,
+      });
+      result = JSON.stringify({
+        nodes: input.tree.length
+          ? []
+          : [
+              node("g", null, "goal", "Restore terminal focus"),
+              node("e", "g", "episode", "Repair focus transitions"),
+              node("s", "e", "step", "Trace focus changes"),
+            ],
+        spans: [{ from, to, node: "s" }],
+      });
+    }
     if ("raw" in control) result = control.raw;
     if (content === "oversize") result = "x".repeat(9000);
     const failed = content === "fail" || !!control.fail;

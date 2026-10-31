@@ -1,8 +1,140 @@
 # Long-term plan view
 
-An experimental eval and UI prototype for a durable account of an agent's work.
-It runs alongside the flat activity eval; it does not change the daemon, viewer,
-protocols, checkpoints or handoffs.
+An experimental eval and opt-in Corgi integration for a durable account of an
+agent's work. The replay and daemon share `src/activity/plan.ts`: the prompt,
+patch validation, hierarchy and setback contract. Flat summaries remain the
+default while historical replay failures are unresolved.
+
+## Try the integration
+
+From this checkout, start a separate environment:
+
+```sh
+CORGI_LONG_PLAN=1 ./go.ts --env long-plan --no-kill
+```
+
+Keep Activity summaries enabled in Clever Corgi. Select an agent, then use
+**prefix P**, the command menu's **Long-term plan**, or `corgi action plan`.
+Up/down select; Enter folds a goal or episode; mouse clicks select/fold and the
+wheel moves through the panel. Escape closes it. Native OMP labels stay native;
+the optional plan uses their intent as evidence without replacing them.
+
+The worker samples commentary, recent/running tools, bounded result excerpts,
+native intents, lifecycle and the provider's confirmed checklist. It updates
+through the existing inference pool and cooldown, including a final observation
+after work settles. Old-turn results may extend their own plan prefix, but never
+replace a newer turn's live label. Agent lifecycle still comes from providers.
+The bounded result history retains four individual tool outcomes, including
+repeated commands, so a successful retry does not erase its preceding failure.
+
+Live costs are observed intervals, not a reconstructed lifetime ledger. The
+first usage sample establishes a baseline. Later usage rolls up once through
+step → episode → goal; cached input is part of input. Unassigned intervals,
+missing coverage and buffer overrun stay explicit. Child-agent costs and private
+summarizer costs are excluded. The UI marks live coverage with ≥. Attribution
+to a step is inferred, even when its observed token count is exact.
+
+Plans, pending observations and costs survive checkpoint/handoff. Cold recovery
+establishes a fresh usage baseline. Queues retain 32 observations and 128 short
+support excerpts; a request handles at most eight observations. At 256 nodes the
+plan reports its history limit and retains further cost as unassigned. These
+bounds protect the daemon; they are not a complete transcript archive.
+
+Defaulted snapshot/checkpoint/handoff additions keep runtime/viewer protocol 3
+and checkpoint/handoff 6. Old data decodes to an empty plan; there is no migration.
+The preview flag survives handoff, with an explicitly supplied flag overriding
+saved mode. Older viewers ignore the optional plan.
+
+## Setbacks and new signal probes
+
+A step may carry a classified setback: verification, conflict, environment,
+permission, or approach. **!** marks an open setback; **!✓** retains a recovered
+one. An approach setback means rework caused by a disproved committed approach,
+not every exploratory hypothesis. Expected red tests, no-match searches,
+ordinary waits and error strings inside source code are negative controls.
+
+The reducer keeps the original setback evidence even when a patch omits it.
+Resolving a known open setback requires fresh evidence. Failed attempts cannot
+be rewritten as successful retries. Done parents reopen around unfinished
+children or open setbacks. These are application guarantees, not evidence that
+the model always understood the task. New replay calls record `repairs` so a
+normalization does not masquerade as flawless model output.
+
+Codex `update_plan` and Claude `TodoWrite`/`TaskCreate`/`TaskUpdate` are folded
+into the existing provider checklist boundary after tool confirmation. OMP
+already supplies grouped TODOs. Unknown statuses and missing task history are
+partial. TODO completion is intent evidence, never proof of passing tests.
+
+```sh
+bun test src/activity/roadmap.test.ts src/providers/claude/todos.test.ts src/providers/codex/todos.test.ts
+bun run evals/long_plan/run.ts --manifest evals/long_plan/synthetic.json --model codex:gpt-6-luna
+bun run evals/long_plan/run.ts --manifest evals/long_plan/holdout.json --model claude:claude-haiku-5-5
+bun run evals/long_plan/run.ts --manifest evals/long_plan/todo_probe.json --ablation live-signals --model claude:claude-haiku-5-5
+bun run evals/long_plan/run.ts --manifest PRIVATE_MANIFEST --ablation live-signals --model codex:gpt-6-luna
+bun evals/long_plan/preview.ts RUN_DIRECTORY [RUN_DIRECTORY...]
+```
+
+`preview.ts` builds `.lavish/long-plan-integrated.html` using the actual
+`src/plan_view.ts` renderer and Corgi palette. It includes recorded failures and
+checkpoint controls. The older `view.ts` remains the original design study.
+`live-signals` runs production transcript readers and their bounded evidence at
+the offline checkpoints. It is a conservative signal-loss probe: it does not
+simulate the live eight-second scheduler, hooks or app-server observations.
+
+## 2026-10-31 results
+
+The new suite has 12 development conversations / 54 checks, plus three separate
+Claude-format holdouts / 13 checks after the review addition below. They contain
+no historical private text. A separate TODO-specificity probe adds seven checks.
+Real replays cover three frozen Claude/Codex excerpts (213 normalized events),
+including the previous rebase and stale-push cases and the review holdout.
+Scanning 194 local Claude, 40 recent Codex and 28 Pi sessions found no TODO tool
+calls. TODO coverage is therefore synthetic; no real TODO coverage is claimed.
+
+| Run | Checks | Invalid/errors | Interpretation |
+| --- | ---: | ---: | --- |
+| Haiku development, v4 | 54/54 | 0 | All synthetic assertions passed |
+| Haiku holdout, v4, reviewed rubric | 13/13 | 0 | Confirmed TODOs, recovered missing dependency, source error strings |
+| Haiku TODO intent probe, full + production signals | 7/7 each | 0 | Specific future tasks survive both paths without invented work |
+| Luna development, v3, reviewed rubric | 54/54 | 0 | Original report retains 53/54; corrected approach anchor below |
+| Luna holdout, v4, reviewed rubric | 11/13 | 0 | Missed a dependency failure and recovery within one checkpoint |
+| Luna real stale-push + review, v2 | 13/13 | 0 | Existing hierarchy/subtitle checks passed |
+| Luna real rebase, v4 | 8/10 | 0 | Wrong episode continuity and a failed test labeled done |
+| Luna production signals, stale-push, v4 | 4/7 | 0 | Coarse bounded snapshots lost context; 77.8% of tokens assigned |
+| Haiku real conversations, v5 | 23/23 | 3 | Final hierarchy checks pass; three recovery patches needed validation retries |
+| Haiku production signals, stale-push, v5 | 7/7 | 0 | Current bounded outcome history; different model/revision from Luna |
+| Haiku production signals, holdout, v5, reviewed rubric | 12/13 | 0 | Retained the resolved bump but merged the failed attempt with the successful retry |
+
+Development latencies were 3.03s mean / 3.84s p95 for Luna and 5.30s mean /
+10.29s p95 for Haiku, each over 30 updates. These include harness overhead;
+concurrent runs and different prompt revisions prevent a controlled ranking.
+Luna consumed 227,065 input (137,600 cached) + 5,487 output inference tokens;
+Haiku consumed 171,110 input (99,327 cached) + 22,903 output. These are summarizer
+costs, separate from the historical agent's usage.
+
+Haiku's real replays took 32 updates, 7.94s mean / 16.21s p95, and consumed
+384,038 input (49,287 cached) + 42,119 output inference tokens. The bounded
+stale-push replay took six updates, 5.03s mean / 7.13s p95, consuming 34,454 input
+(4,043 cached) + 4,477 output. Neither is a controlled latency comparison.
+
+Earlier v1/v2 failures are retained under ignored `evals/results/long-plan/`.
+They exposed planned steps receiving work spans, an unrelated README edit
+entering a failed-test episode, and forgotten recovery updates. The approach
+probe was clarified to describe an actual discarded rewrite. Its first anchor
+pointed to the successful trace command; it now points to the explicit course
+correction. Luna's original failed report is unchanged; `review.json` records
+the revised scorer. No historical expectations were loosened.
+
+Manual review also found an omission in the holdout rubric: a resolved bump
+could pass while its original failed build was labeled done. A thirteenth check
+now requires the failed attempt to remain failed. The full-transcript Haiku run
+passes it; the production-signal run fails it. Original 12-check reports remain
+unchanged; reviewed scorecards and the browser show the stronger result.
+
+Release blockers remain: preserve failed attempts when failure and recovery
+arrive together, keep episode identity through follow-ups, and retain enough
+live evidence to match full replay quality. The integration stays opt-in.
+The earlier pilot below remains historical context, not the current scorecard.
 
 ## Product contract
 

@@ -253,6 +253,7 @@ export function panes(c: Column) {
   prompt(c);
   c.action(i18n.t`Toggle sidebar`, act("sidebar"), 2);
   c.action(i18n.t`Review changes`, act("review"), 2);
+  c.action(i18n.t`Long-term plan`, act("plan"), 2);
   c.action(i18n.t`Setup`, act("setup"), 2);
 }
 /** The Corgi prompt as a little card, its corgi asleep on the top edge, with

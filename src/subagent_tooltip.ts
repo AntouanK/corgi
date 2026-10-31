@@ -1,3 +1,4 @@
+import * as roadmap from "./activity/roadmap";
 //! The agent card a sidebar row opens on hover, and the usage overview the
 //! status bar opens. Mirrors subagent_tooltip.zig.
 import * as i18n from "./i18n";
@@ -140,6 +141,7 @@ export interface Conversation {
   id: number;
   timeline: { points: ActivityPoint[]; pending: UsageView };
   checklist: checklist.List;
+  activity_plan: roadmap.Snapshot;
   /** The first-party model id; Bedrock and Vertex spellings are resolved. */
   model: string;
   /** Its display name, such as "Opus 5.5"; empty for an unknown shape. */
@@ -192,6 +194,7 @@ export function conversation(value: any = {}): Conversation {
     },
     id: Number(value.id ?? 0),
     checklist: decodeChecklist(value.checklist),
+    activity_plan: roadmap.decode(value.activity_plan),
     timeline: {
       points: (value.timeline?.points ?? []).map((point: any) => ({
         at: Number(point.at ?? 0),

@@ -2,6 +2,7 @@ import { Text } from "./summary";
 import { BoundedText } from "../bounded_text";
 class Turn extends BoundedText(160) {}
 export class View {
+  road_evidence = new Text();
   commentary = new Text();
   running = 0;
   ended = false;
@@ -43,6 +44,8 @@ export function scriptString(args: string, key: string): string | null {
   }
 }
 export class Call {
+  outcome: "success" | "failure" | null = null;
+  result = "";
   id = 0n;
   live = false;
   value = "";
@@ -115,6 +118,7 @@ export class Call {
   }
 }
 export class Tracker {
+  prompt = new Text();
   commentary = new Text();
   turn = new Turn();
   ended = false;
@@ -123,6 +127,7 @@ export class Tracker {
   next_pending = 0;
   seen: bigint[] = [];
   recent: Array<Call | null> = [null, null, null];
+  outcomes: Call[] = [];
   dirty = false;
   /** The tracker a handoff carried, or a new one. */
   static restore(saved: any) {
@@ -177,6 +182,22 @@ export class Tracker {
     if (active > 4) evidence += "Additional tools are running.\n";
     if (this.completed) evidence += "Recent completed tools (oldest to newest):\n";
     for (const call of this.recent) if (call) evidence += call.text() + "\n";
+    const outcomes = this.outcomes
+      .map(call => {
+        const result =
+          Buffer.byteLength(call.result) <= 160
+            ? call.result
+            : clip(call.result, 80) + " … " + clip(call.result.slice(-80), 80);
+        return `${clip(call.text(), 128)} [${call.outcome ?? "outcome unknown"}]: ${result}`;
+      })
+      .join("\n");
+    out.road_evidence = new Text(
+      clip(
+        (this.prompt.len ? "User request: " + this.prompt.text() + "\n" : "") +
+          (outcomes ? "Recent tool outcomes (oldest to newest):\n" + outcomes : ""),
+        2048,
+      ),
+    );
     out.evidence = new Text(clip(evidence, 2048));
     return out;
   }
@@ -200,15 +221,22 @@ export class Tracker {
     if (!live) return;
     this.completed++;
     this.dirty = true;
+    // Repeating a command must not erase the failure that preceded its successful retry.
+    if (call.outcome || call.result) {
+      this.outcomes.push(call);
+      if (this.outcomes.length > 4) this.outcomes.shift();
+    }
     if (this.recent[2]?.text() !== call.text()) {
       this.recent[0] = this.recent[1];
       this.recent[1] = this.recent[2];
     }
     this.recent[2] = call;
   }
-  finishId(id: bigint, live: boolean) {
+  finishId(id: bigint, live: boolean, outcome: "success" | "failure" | null = null, result = "") {
     const slot = this.pending.findIndex(c => c?.id === id);
     if (slot < 0) return;
+    this.pending[slot]!.outcome = outcome;
+    this.pending[slot]!.result = clip(result.replace(/[\x00-\x1f\x7f-\x9f]/g, " "), 320);
     this.finish(this.pending[slot]!, live);
     this.pending[slot] = null;
   }

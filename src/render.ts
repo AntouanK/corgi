@@ -2,6 +2,7 @@ import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
+import * as planView from "./plan_view";
 import * as palette from "./palette";
 import * as docking from "./docking";
 import * as dockingGrip from "./docking_grip";
@@ -215,6 +216,7 @@ export interface Ui {
   resource_card: resourceTooltip.State | null;
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
+  plan_card: planView.State | null;
   git_hover: number | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
@@ -316,6 +318,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     resource_card: null,
     startup_waits: [],
     startup_card: null,
+    plan_card: null,
     git_hover: null,
     grip_hover: [],
     git_card: null,
@@ -555,6 +558,7 @@ function noOverlay(u: Ui): boolean {
 function noPopup(u: Ui): boolean {
   return (
     u.startup_card === null &&
+    u.plan_card === null &&
     u.scope_menu === null &&
     u.agent_launcher === null &&
     u.corgi_setup === null &&
@@ -1137,7 +1141,14 @@ export function frame(
     }
   }
   if (paste_at) w.write(pasteCard.draw(u.paste_card!, paste_at, u.paste_copied));
-  if (u.worktree_card) {
+  if (u.plan_card) {
+    const c = u.conversations.find(c => c.id === u.plan_card!.actor),
+      rect = planView.geometry(width, height);
+    if (c) {
+      planView.draw(w, rect, c.agent.name || "Agent", c.activity_plan, u.plan_card);
+      cover(rect);
+    }
+  } else if (u.worktree_card) {
     const ws = u.workspaces.find(ws => ws.id === u.worktree_card!.workspace);
     if (ws) {
       const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id),

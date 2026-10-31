@@ -334,3 +334,63 @@ $.clients[].startup_wait?.phase: enum discovering service session installing age
 $.clients[].startup_wait?.detail: string
 $.clients[].startup_wait?.started_at: i64
 $.clients[].startup_wait?.cancelled: bool
+$.summaries?.plans: optional
+$.summaries?.plans?: bool
+$.summaries?.slots[].slot.attempted_road: usize
+$.summaries?.slots[].slot.road_evidence: custom bounded_text.BoundedText(2048)
+$.summaries?.slots[].slot.request.road: optional
+$.summaries?.slots[].slot.request.road?.state.nodes[].id: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].parent: optional
+$.summaries?.slots[].slot.request.road?.state.nodes[].parent?: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].kind: enum goal episode step
+$.summaries?.slots[].slot.request.road?.state.nodes[].title: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].subtitle: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].state: enum planned active done failed blocked abandoned
+$.summaries?.slots[].slot.request.road?.state.nodes[].evidence[]: usize
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump: optional
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.kind: enum verification conflict environment permission approach
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.state: enum open resolved
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.detail: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.evidence[]: usize
+$.summaries?.slots[].slot.request.road?.state.through: usize
+$.summaries?.slots[].slot.request.road?.events[].id: usize
+$.summaries?.slots[].slot.request.road?.events[].line: usize
+$.summaries?.slots[].slot.request.road?.events[].at: string
+$.summaries?.slots[].slot.request.road?.events[].turn: usize
+$.summaries?.slots[].slot.request.road?.events[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.request.road?.events[].text: string
+$.summaries?.slots[].slot.request.road?.support[].id: usize
+$.summaries?.slots[].slot.request.road?.support[].line: usize
+$.summaries?.slots[].slot.request.road?.support[].at: string
+$.summaries?.slots[].slot.request.road?.support[].turn: usize
+$.summaries?.slots[].slot.request.road?.support[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.request.road?.support[].text: string
+$.summaries?.slots[].slot.result?.request.road: optional
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].id: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].parent: optional
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].parent?: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].kind: enum goal episode step
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].title: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].subtitle: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].state: enum planned active done failed blocked abandoned
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].evidence[]: usize
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump: optional
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.kind: enum verification conflict environment permission approach
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.state: enum open resolved
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.detail: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.evidence[]: usize
+$.summaries?.slots[].slot.result?.request.road?.state.through: usize
+$.summaries?.slots[].slot.result?.request.road?.events[].id: usize
+$.summaries?.slots[].slot.result?.request.road?.events[].line: usize
+$.summaries?.slots[].slot.result?.request.road?.events[].at: string
+$.summaries?.slots[].slot.result?.request.road?.events[].turn: usize
+$.summaries?.slots[].slot.result?.request.road?.events[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.result?.request.road?.events[].text: string
+$.summaries?.slots[].slot.result?.request.road?.support[].id: usize
+$.summaries?.slots[].slot.result?.request.road?.support[].line: usize
+$.summaries?.slots[].slot.result?.request.road?.support[].at: string
+$.summaries?.slots[].slot.result?.request.road?.support[].turn: usize
+$.summaries?.slots[].slot.result?.request.road?.support[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.result?.request.road?.support[].text: string
+$.summaries?.slots[].slot.result?.patch: optional
+$.summaries?.slots[].slot.result?.patch?: string

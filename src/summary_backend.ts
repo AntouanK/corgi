@@ -3,6 +3,9 @@ import { model } from "./inference/setup";
 import type { Provider } from "./providers";
 import { getLogger } from "./log";
 import * as contract from "./activity/prompt";
+import * as plan from "./activity/plan";
+import * as roadmap from "./activity/roadmap";
+import { Text } from "./agents";
 const log = getLogger("activity_summary");
 export { contract };
 export type Input = contract.Input;
@@ -38,18 +41,27 @@ export class Backend {
   close() {
     this.pool.close();
   }
-  async infer(input: Input, turn: string, conversation: string, source: Source, stopping: any = false) {
+  async infer(
+    input: Input,
+    turn: string,
+    conversation: string,
+    source: Source,
+    stopping: any = false,
+    road: roadmap.Input | null = null,
+  ) {
     const request = ++this.next_request,
       context = { pid: process.pid, request, source, turn, conversation };
-    const content = contract.content({ ...input, history: null }),
-      fresh = input.history?.length ? contract.content(input) : null;
+    const content = road ? roadmap.content(road) : contract.content({ ...input, history: null }),
+      fresh = road ? null : input.history?.length ? contract.content(input) : null,
+      instructions = road ? plan.instructions : contract.instructions,
+      schema = road ? plan.schemaFor(road.events[0].id, road.events.at(-1)!.id) : contract.schema;
     log.info("Summary requested", {
       event: "request",
       context,
       provider: this.pool.config.provider,
       model: this.pool.config.model,
-      instructions: contract.instructions,
-      schema: contract.schema,
+      instructions,
+      schema,
       input: content,
       fresh_input: fresh,
     });
@@ -57,11 +69,11 @@ export class Backend {
     try {
       response = await this.pool.infer(
         {
-          instructions: contract.instructions,
-          schema: contract.schema,
+          instructions,
+          schema,
           content,
           fresh_content: fresh,
-          conversation,
+          conversation: road ? undefined : conversation,
         },
         stopping,
       );
@@ -76,7 +88,15 @@ export class Backend {
       return { request, decision: null };
     }
     try {
-      const decision = contract.parse(response.text(), input.phase);
+      let patch: string | null = null;
+      let decision: { action: contract.Action; label: Text | null };
+      if (road) {
+        const applied = plan.apply(road.state, response.text(), road.events);
+        patch = response.text();
+        const id = applied.patch.spans.at(-1)?.node,
+          current = applied.state.nodes.find(n => n.id === id);
+        decision = { action: "new", label: current ? new Text(current.title) : null };
+      } else decision = contract.parse(response.text(), input.phase);
       log.info("Summary result", {
         event: "result",
         context,
@@ -87,7 +107,7 @@ export class Backend {
         fresh_conversation: response.fresh,
         usage: response.usage,
       });
-      return { request, decision };
+      return { request, decision, patch };
     } catch (error) {
       log.info("Summary rejected", {
         event: "result",

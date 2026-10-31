@@ -42,6 +42,12 @@ export const specs: Record<string, string> = {
   "startup-kill": "[]const u8",
   "startup-close": "void",
   resources: "usize",
+  plan: "usize",
+  "plan-next": "void",
+  "plan-prev": "void",
+  "plan-toggle": "void",
+  "plan-select": "[]const u8",
+  "plan-close": "void",
   "resource-next": "void",
   "resource-prev": "void",
   "resource-sort": "Side",
@@ -112,7 +118,7 @@ export function parse(name: string, value = ""): Action {
   if (!Object.hasOwn(specs, name)) throw new Error("UnknownAction");
   if (type === "void") return { name };
   if (type === "usize") {
-    if ((name === "worktrees" || name === "resources") && !value) return { name, value: 0 };
+    if ((name === "worktrees" || name === "resources" || name === "plan") && !value) return { name, value: 0 };
     if (!/^\+?\d+$/.test(value)) throw new Error("BadValue");
     const number = Number(value);
     if (!Number.isSafeInteger(number)) throw new Error("BadValue");
@@ -187,6 +193,7 @@ export function title(action: Action): string {
     worktrees: i18n.t`Show worktrees`,
     "startup-waits": i18n.t`Show startup waits`,
     resources: i18n.t`Show resources`,
+    plan: i18n.t`Show long-term plan`,
     "goto-workspace": i18n.t`Select workspace`,
     open: i18n.t`Open folder as workspace`,
     "new-agent": i18n.t`New agent`,

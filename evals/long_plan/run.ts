@@ -6,6 +6,7 @@ import * as flat from "../../src/activity/prompt";
 import * as history from "./history";
 import * as plan from "./plan";
 import * as scoring from "./score";
+import { Signals } from "./signals";
 import type { Provider } from "./history";
 import type { Check } from "./score";
 
@@ -39,7 +40,8 @@ async function main() {
   const batchSize = Number(option("--batch", "24")),
     ablation = option("--ablation", "all"),
     baseline = args.includes("--flat");
-  if (!["all", "no-reasoning", "no-plans", "tools-only"].includes(ablation)) throw Error("InvalidAblation");
+  if (!["all", "no-reasoning", "no-plans", "tools-only", "live-signals"].includes(ablation))
+    throw Error("InvalidAblation");
   const dir = option("--out", `evals/results/long-plan/${new Date().toISOString().replaceAll(":", "-")}`);
   fs.mkdirSync(dir, { recursive: true });
   const raw = fs.readFileSync(manifest, "utf8"),
@@ -52,11 +54,20 @@ async function main() {
   const sourceHashes = Object.fromEntries(
     [
       "history.ts",
+      "signals.ts",
+      "../../src/activity/tools.ts",
+      "../../src/providers/claude/usage.ts",
+      "../../src/providers/codex/usage.ts",
+      "../../src/providers/claude/todos.ts",
+      "../../src/providers/codex/todos.ts",
+      "../../src/activity/checklist.ts",
       "plan.ts",
       "score.ts",
       "run.ts",
       "../../src/inference/harness.ts",
       "../../src/activity/prompt.ts",
+      "../../src/activity/plan.ts",
+      "../../src/activity/roadmap.ts",
     ].map(file => [file, history.hash(fs.readFileSync(path.join(import.meta.dir, file), "utf8"))]),
   );
   const report: {
@@ -99,6 +110,7 @@ async function main() {
         );
         continue;
       }
+      const signals = ablation === "live-signals" ? new Signals(c.source, c.provider) : null;
       let state = plan.empty(),
         phase: string | null = null,
         phaseId = "",
@@ -118,12 +130,14 @@ async function main() {
               ? "[signal withheld]"
               : e.text,
         });
-        const events = batch.map(withhold);
-        const support = [...new Set(state.nodes.flatMap(n => n.evidence))]
-          .map(id => data.events[id - 1])
-          .filter(Boolean)
-          .map(withhold)
-          .map(e => ({ ...e, text: e.text.slice(0, 350) }));
+        const events = signals ? signals.batch(batch) : batch.map(withhold);
+        const support = signals
+          ? []
+          : [...new Set(state.nodes.flatMap(n => [...n.evidence, ...(n.bump?.evidence ?? [])]))]
+              .map(id => data.events[id - 1])
+              .filter(Boolean)
+              .map(withhold)
+              .map(e => ({ ...e, text: e.text.slice(0, 350) }));
         const evidence = events.map(e => `${e.id} ${e.kind}: ${e.text}`).join("\n");
         const flatEvidence = Buffer.from(evidence).subarray(-2048).toString("utf8").replaceAll("\ufffd", "");
         const turn = String(batch.at(-1)!.turn);
@@ -148,6 +162,7 @@ async function main() {
         const started = Date.now();
         let rawResponse: string | null = null;
         const attempts: unknown[] = [];
+        let repairs: string[] = [];
         try {
           const request = {
             instructions: baseline ? flat.instructions : plan.instructions,
@@ -226,7 +241,11 @@ async function main() {
               node: decision.label ? `${phaseId}_step` : null,
             });
             state.through = events.at(-1)!.id;
-          } else state = plan.apply(state, rawResponse, batch).state;
+          } else {
+            const applied = plan.apply(state, rawResponse, batch);
+            state = applied.state;
+            repairs = applied.repairs;
+          }
           const snapshot = structuredClone(state),
             elapsed = Date.now() - started;
           snapshots.push(snapshot);
@@ -238,6 +257,7 @@ async function main() {
             elapsed_ms: elapsed,
             attempts,
             state: snapshot,
+            repairs,
             ledger: tokens,
           });
           console.log(`${c.id} ${state.through}/${data.events.length}: ${state.nodes.length} nodes, ${elapsed}ms`);

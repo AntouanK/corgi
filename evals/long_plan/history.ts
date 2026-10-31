@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
+import type { Event } from "../../src/activity/plan";
+export type { Event } from "../../src/activity/plan";
 
 export type Provider = "codex" | "claude";
-export type Kind = "user" | "assistant" | "reasoning" | "tool" | "result" | "plan" | "lifecycle";
+export type Kind = Event["kind"];
 export type Tokens = { input: string; cached: string; output: string };
-export type Event = { id: number; line: number; at: string; turn: number; kind: Kind; text: string };
 export type Receipt = { id: string; event: number | null; line: number; tokens: Tokens };
 export type History = {
   provider: Provider;
@@ -210,7 +211,13 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
               line,
               at,
             );
-          } else if (type === "tool_result") emit("result", blockText(b.content), line, at);
+          } else if (type === "tool_result")
+            emit(
+              "result",
+              `Tool ${string(b.tool_use_id)}${b.is_error === true ? " [failure]" : " [outcome from result]"}: ${blockText(b.content)}`,
+              line,
+              at,
+            );
         }
         if (v.type === "assistant" && string(m.id)) {
           const id = string(m.id),

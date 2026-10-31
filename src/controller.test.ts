@@ -1,3 +1,4 @@
+import * as roadmap from "./activity/roadmap";
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
@@ -5189,4 +5190,55 @@ test("a full input box still opens the field on a double-click and keeps Rename 
   } finally {
     viewer.close(refused);
   }
+test("the plan panel opens through its action and routes keyboard and mouse to the same selection", async () => {
+  const s = controller(),
+    snapshot: any = folders("/a");
+  const view = roadmap.emptyView();
+  view.nodes = [
+    {
+      id: "g",
+      parent: null,
+      kind: "goal",
+      title: "Repair download resume",
+      subtitle: "Preserve the partial file",
+      state: "active",
+      evidence: [1],
+    },
+    {
+      id: "e",
+      parent: "g",
+      kind: "episode",
+      title: "Fix retry offsets",
+      subtitle: "Repeated data comes from reset offsets",
+      state: "active",
+      evidence: [1],
+    },
+    {
+      id: "s",
+      parent: "e",
+      kind: "step",
+      title: "Verify retry behavior",
+      subtitle: "Run existing regression tests",
+      state: "active",
+      evidence: [1],
+    },
+  ];
+  for (const n of view.nodes) view.counts[n.id] = roadmap.zero();
+  snapshot.panes[0].agent = { provider: "codex", conversation: 1, session: "a" };
+  snapshot.conversations = [
+    { id: 1, agent: { provider: "codex", session: "a", name: "Downloads" }, activity_plan: view },
+  ];
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
+  await s.perform({ name: "plan" });
+  expect(s.plan_card.actor).toBe(1);
+  s.plan_card.selected = "g";
+  await s.input(bytes("\x1b[B"));
+  expect(s.plan_card.selected).toBe("e");
+  await s.input(bytes("\r"));
+  expect(s.plan_card.collapsed.has("e")).toBe(true);
+  await s.perform({ name: "plan-select", value: "e" });
+  expect(s.plan_card.collapsed.has("e")).toBe(false);
+  await s.input(bytes("\x1b[27u"));
+  expect(s.plan_card.actor).toBe(0);
 });

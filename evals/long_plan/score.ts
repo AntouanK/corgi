@@ -4,6 +4,17 @@ import type { History } from "./history";
 import type { State } from "./plan";
 
 export type Check =
+  | { name: string; kind: "planned_step"; pattern: string }
+  | { name: string; kind: "planned_only" }
+  | {
+      name: string;
+      kind: "bump";
+      event: number;
+      category: plan.BumpKind | null;
+      state?: "open" | "resolved";
+      at?: number;
+    }
+  | { name: string; kind: "bump_count"; count: number }
   | { name: string; kind: "same_episode" | "different_episode" | "same_goal"; a: number; b: number }
   | {
       name: string;
@@ -64,6 +75,36 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
     let pass = false,
       detail = "";
     switch (check.kind) {
+      case "planned_step": {
+        const nodes = state.nodes.filter(n => n.kind === "step" && n.state === "planned");
+        pass = nodes.some(n => new RegExp(check.pattern, "i").test(n.title + " " + n.subtitle));
+        detail = nodes.map(n => n.title).join(" / ") || "no planned steps";
+        break;
+      }
+      case "planned_only": {
+        pass =
+          state.nodes.length > 0 &&
+          state.nodes.every(n => n.state === "planned") &&
+          state.spans.every(s => s.node === null);
+        detail = `${state.nodes.length} intended nodes; ${state.spans.filter(s => s.node !== null).length} work spans`;
+        break;
+      }
+      case "bump": {
+        const snapshot = check.at === undefined ? state : snapshots.find(s => s.through >= check.at!);
+        const node = snapshot && ancestor(snapshot, check.event, "step");
+        detail = node?.bump ? `${node.bump.kind}: ${node.bump.state} — ${node.bump.detail}` : "no bump";
+        pass =
+          check.category === null
+            ? !node?.bump
+            : node?.bump?.kind === check.category && (!check.state || node.bump.state === check.state);
+        break;
+      }
+      case "bump_count": {
+        const count = state.nodes.filter(n => n.bump).length;
+        pass = count === check.count;
+        detail = `${count} bumps`;
+        break;
+      }
       case "same_episode":
       case "different_episode":
       case "same_goal": {
