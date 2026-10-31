@@ -18,43 +18,51 @@ type Row =
 const rowHeight = (row: Row) => (row.kind === "node" && row.node.bump ? 2 : 1);
 const currentStep = (view: roadmap.Snapshot, node: Node) => node.id === view.focus_step && node.state === "active";
 export function tail(view: roadmap.Snapshot, count: number) {
-  const all: Row[] = [];
-  const episodes = view.nodes.filter(n => n.kind === "episode");
   const step = view.nodes.find(n => n.id === view.focus_step);
-  // Returning to earlier work keeps it in the tail.
-  const ordered = [...episodes.filter(n => n.id !== view.focus), ...episodes.filter(n => n.id === view.focus)];
-  for (const episode of ordered) {
-    all.push({ kind: "node", node: episode, depth: 0 });
-    const steps = view.nodes.filter(n => n.parent === episode.id);
-    for (const step of [...steps.filter(n => !currentStep(view, n)), ...steps.filter(n => currentStep(view, n))])
-      all.push({ kind: "node", node: step, depth: 1 });
-    if (
-      episode.id === view.focus &&
-      episode.state === "active" &&
-      (!step || ["done", "abandoned", "planned"].includes(step.state))
-    )
-      all.push({ kind: "pending", parent: episode });
-  }
-  let rows: Row[] = [],
-    used = 0;
-  for (let i = all.length - 1; i >= 0; i--) {
-    used += rowHeight(all[i]);
-    if (used > count) break;
-    const first = all[i];
-    const parent =
-      first.kind === "node"
-        ? first.depth === 1
-          ? view.nodes.find(n => n.id === first.node.parent)
-          : null
-        : first.parent;
-    const candidate = all.slice(i);
-    if (parent) {
-      const hidden = all.slice(0, i).filter(r => r.kind === "node" && r.node.parent === parent.id).length;
-      const minimum = rowHeight(all.at(-1)!) + 1;
-      if (hidden >= 2 && count > minimum) candidate.unshift({ kind: "more", parent, count: hidden });
-      candidate.unshift({ kind: "node", node: parent, depth: 0 });
+  const blocks = view.nodes
+    .filter(n => n.kind === "episode")
+    .map(episode => {
+      const heading: Row = { kind: "node", node: episode, depth: 0 };
+      const children: Row[] = view.nodes
+        .filter(n => n.parent === episode.id)
+        .map(node => ({ kind: "node", node, depth: 1 }));
+      if (
+        episode.id === view.focus &&
+        episode.state === "active" &&
+        (!step || ["done", "abandoned", "planned"].includes(step.state))
+      )
+        children.push({ kind: "pending", parent: episode });
+      return { episode, heading, children };
+    });
+  const all = blocks.flatMap(b => [b.heading, ...b.children]);
+  const pinned = all.filter(
+    r =>
+      r.kind === "pending" ||
+      (r.kind === "node" && (currentStep(view, r.node) || (r.node.id === view.focus && r.node.state === "active"))),
+  );
+  let rows: Row[] = [];
+  // Keep current work visible without changing the order of any history rows.
+  for (let start = all.length; start >= 0; start--) {
+    const selected = new Set([...all.slice(start), ...pinned]);
+    let candidate: Row[] = [];
+    for (const { episode, heading, children } of blocks) {
+      if (!selected.has(heading) && !children.some(r => selected.has(r))) continue;
+      candidate.push(heading);
+      let hidden = 0;
+      const gap = () => {
+        if (hidden >= 2 && count >= 4) candidate.push({ kind: "more", parent: episode, count: hidden });
+        hidden = 0;
+      };
+      for (const child of children) {
+        if (selected.has(child)) {
+          gap();
+          candidate.push(child);
+        } else if (child.kind === "node") hidden++;
+      }
+      gap();
     }
     if (candidate.reduce((sum, r) => sum + rowHeight(r), 0) <= count) rows = candidate;
+    if (all.slice(start).reduce((sum, r) => sum + rowHeight(r), 0) > count) break;
   }
   return { rows, hidden: all.filter(r => r.kind === "node").length - rows.filter(r => r.kind === "node").length };
 }
@@ -84,7 +92,9 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
   const { rows, hidden } = tail(view, capacity(rect)),
     lastRow = rows.at(-1),
     last = lastRow?.kind === "node" ? lastRow.node : lastRow?.parent,
-    episode = last?.kind === "step" ? view.nodes.find(n => n.id === last.parent) : last,
+    episode =
+      view.nodes.find(n => n.id === view.focus) ??
+      (last?.kind === "step" ? view.nodes.find(n => n.id === last.parent) : last),
     goal = view.nodes.find(n => n.id === episode?.parent) ?? view.nodes.findLast(n => n.kind === "goal");
   const observed = view.nodes
     .filter(n => n.kind === "goal")

@@ -59,8 +59,9 @@ A setback adds one explanation line beneath its step. Resolved problems keep a
 dimmed **!✓** and a struck-through explanation.
 A green **▶** marks the focused episode while it is active. Its current active
 step also gets a green **▶** and bold text; completed episodes and steps are dimmed
-and future work is labeled planned. Older unfinished steps keep ordinary text. The active step
-stays in the tail when revisited. Sidebar branches connect steps and their
+and future work is labeled planned. Older unfinished steps keep ordinary text. Episodes and steps keep their creation order
+when focus changes. The active step stays visible in that order alongside the
+latest rows, with omission counts between them. Sidebar branches connect steps and their
 explanations. Two or more hidden steps get a “… N more” row instead of a
 continued suffix; an unknown current step gets “…”. Available tool-call counts
 and cached input remain visible. The optional `focus_step` defaults to null in old snapshots;
@@ -162,8 +163,8 @@ the reducer still rejects rewritten history. Resuming a completed replay makes
 no additional model calls. Flat-baseline resume is not supported.
 
 Stored focus follows the last attributed work span. Null/unassigned events and
-pauses retain focus; new work in another episode moves it. Returning to an older
-episode brings its tail into view. Focus survives reload and cold recovery and
+pauses retain focus; new work in another episode moves it. Returning to older work keeps it visible without changing episode or step
+order. Focus survives reload and cold recovery and
 defaults to null in old snapshots. Play icons require active state: a completed
 episode stays in the tail but loses its play icon and dims. In the rebase
 regression, checkpoints 1, 2 and 3 retain the same episode position; the middle

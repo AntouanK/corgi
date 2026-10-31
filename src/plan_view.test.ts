@@ -176,10 +176,48 @@ test("long plans follow appended work, retain its episode, and total hidden work
         .tail(view, 3)
         .rows.filter(r => r.kind === "node")
         .map(r => r.node.id),
-    ).toEqual(["e", "s"]);
+    ).toEqual(["e", "s", "latest"]);
     expect(draw()).toContain("Run resume tests");
   } finally {
     terminal.destroy();
+  }
+});
+
+test("changing focus preserves episode and step order, including a revisited step in a short tail", () => {
+  const view = fixture();
+  view.nodes[2].state = "active";
+  view.nodes[2].bump = null;
+  view.nodes.push(
+    { ...view.nodes[2], id: "s2", title: "Run another check" },
+    { ...view.nodes[0], id: "g2", title: "Review another feature" },
+    { ...view.nodes[1], id: "e2", parent: "g2", title: "Inspect another problem" },
+    { ...view.nodes[2], id: "s3", parent: "e2", title: "Read the logs" },
+  );
+  const ids = (count: number) => planView.tail(view, count).rows.flatMap(r => (r.kind === "node" ? [r.node.id] : []));
+  for (const [episode, step] of [
+    ["e", "s"],
+    ["e2", "s3"],
+    ["e", "s2"],
+    ["e", "s"],
+  ]) {
+    view.focus = episode;
+    view.focus_step = step;
+    expect(ids(20)).toEqual(["e", "s", "s2", "e2", "s3"]);
+    const short = ids(4);
+    expect(short).toContain(step);
+    expect(short).toEqual(["e", "s", "s2", "e2", "s3"].filter(id => short.includes(id)));
+    const out = new Writer(),
+      terminal = new Terminal(100, 20),
+      rect = planView.geometry(100, 20);
+    try {
+      planView.draw(out, rect, "Agent", view);
+      terminal.feed(out.buffered());
+      expect(terminal.text().split("\n")[rect.y + 1]).toContain(
+        episode === "e" ? "Repair download resume" : "Review another feature",
+      );
+    } finally {
+      terminal.destroy();
+    }
   }
 });
 

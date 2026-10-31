@@ -301,15 +301,17 @@ problems marked ! only on the affected step. Each problem has a short explanatio
 below it; resolved problems use !✓ and strike through that explanation.
 A green ▶ marks the focused episode while it is active. Its current active
 step also gets a green ▶ and bold text; completed episodes and steps are dimmed
-and future work is labeled planned. Older unfinished steps keep ordinary text. Returning to an
-earlier active step brings it into the tail. Sidebar branches (├, ╰, │ and
-the focused ┣/┃) connect each block. Two or more hidden steps get a “… N more”
+and future work is labeled planned. Older unfinished steps keep ordinary text.
+Episodes and steps retain their creation order when focus changes. The tail keeps current work visible
+in place alongside the latest rows, with omission counts between them. Sidebar
+branches (├, ╰, │ and the focused ┣/┃) connect each block. Two or more hidden steps get a “… N more”
 row; an unknown current step gets “…”. Tokens, tool-call counts and cached input
 appear in columns beside the work and in the total row. Missing usage fields
 stay blank. Stored focus follows the latest attributed work and survives pauses
 and reloads, keeping the episode in the tail after completion. Play icons only
-appear on active work; the agent status reports whether the agent is running. Older plans without the optional focus fields show no highlight until
-new work is attributed.
+appear on active work; the agent status reports whether the agent is running.
+Older plans without the optional focus fields show no highlight until new work
+is attributed.
 Live costs count observed intervals after an opening baseline, include cached input once, exclude child
 and summarizer usage, and retain unassigned cost. They are partial coverage,
 not full transcript accounting. Plan and pending intervals survive reload;
