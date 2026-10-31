@@ -94,6 +94,65 @@ test("usage before a generating action remains unassigned", () => {
   expect(plan.ledger(plan.empty(), data, 1).known).toBe(true);
 });
 
+test("a later Codex compaction does not add usage to the completed action", () => {
+  const data = history.decode(
+    jsonl(
+      { type: "event_msg", payload: { type: "task_started", turn_id: "commit" } },
+      {
+        type: "response_item",
+        payload: { type: "function_call", call_id: "t", name: "exec", arguments: "git commit" },
+      },
+      {
+        type: "token_usage_record",
+        payload: { response_id: "commit-response", turn_id: "commit", usage: { input_tokens: 100, output_tokens: 20 } },
+      },
+      { type: "event_msg", payload: { type: "task_complete", turn_id: "commit" } },
+      { type: "event_msg", payload: { type: "task_started", turn_id: "next" } },
+      {
+        type: "token_usage_record",
+        payload: { response_id: "compact-response", turn_id: "next", usage: { input_tokens: 200, output_tokens: 30 } },
+      },
+      { type: "compacted", payload: { compaction_response_id: "compact-response" } },
+      {
+        type: "token_usage_record",
+        payload: {
+          response_id: "commit-response",
+          turn_id: "commit",
+          usage: { input_tokens: 100, cached_input_tokens: 80, output_tokens: 20 },
+        },
+      },
+    ),
+    "codex",
+  );
+  expect(data.receipts.map(r => r.event)).toEqual([1, null, 1]);
+  const ledger = plan.ledger({ nodes, spans: [{ from: 1, to: 3, node: "s" }], through: 3 }, data);
+  expect(ledger.counts.s).toEqual({ input: "100", cached: "80", output: "20" });
+  expect(history.total(ledger.unattributed)).toBe(230n);
+  expect(history.total(ledger.observed)).toBe(350n);
+});
+
+test("in-turn compaction receipts are unassigned and later work establishes a fresh anchor", () => {
+  const usage = { input_tokens: 100, output_tokens: 20 };
+  const tool = (id: string) => ({
+    type: "response_item",
+    payload: { type: "function_call", call_id: id, name: "exec", arguments: "run tests" },
+  });
+  const data = history.decode(
+    jsonl(
+      tool("before"),
+      { type: "token_usage_record", payload: { response_id: "work", usage } },
+      { type: "token_usage_record", payload: { response_id: "compact", usage } },
+      { type: "compacted", payload: { compaction_response_id: "compact" } },
+      { type: "token_usage_record", payload: { response_id: "unobserved", usage } },
+      tool("after"),
+      { type: "token_usage_record", payload: { response_id: "more-work", usage } },
+    ),
+    "codex",
+  );
+  expect(data.receipts.map(r => r.event)).toEqual([1, null, null, 3]);
+  expect(data.receipts.reduce((sum, r) => sum + history.total(r.tokens), 0n)).toBe(480n);
+});
+
 test("large counters use decimal bigint strings and unsafe JSON numbers fail", () => {
   const row = (input: string | number) => ({
     type: "token_usage_record",

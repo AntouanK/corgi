@@ -78,9 +78,10 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
   const direct = records.some(v => v.type === "token_usage_record");
   const seen = new Set<string>(),
     counters = new Map<string, Tokens>(),
-    responseAnchors = new Map<string, number>(),
+    responseAnchors = new Map<string, number | null>(),
     receiptGroups = new Map<string, Receipt[]>();
   let turn = 0,
+    codexTurn = "",
     anchor: number | null = null,
     hasCumulative = false,
     cumulative = zero();
@@ -93,6 +94,7 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
     if (kind === "user") anchor = null;
   };
   const receipt = (id: string, value: Tokens, line: number) => {
+    if (provider === "codex" && !responseAnchors.has(id)) responseAnchors.set(id, anchor);
     const old = counters.get(id) ?? zero(),
       delta = zero();
     for (const key of ["input", "cached", "output"] as const) {
@@ -105,7 +107,7 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
     if (total(delta) || BigInt(delta.cached)) {
       const entry = {
         id: `${id}:${line}`,
-        event: provider === "claude" ? (responseAnchors.get(id) ?? null) : anchor,
+        event: responseAnchors.get(id) ?? null,
         line,
         tokens: delta,
       };
@@ -121,6 +123,11 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
       p = object(v.payload),
       m = object(v.message);
     if (provider === "codex") {
+      if (v.type === "turn_context" || (v.type === "event_msg" && p.type === "task_started")) {
+        const id = string(p.turn_id);
+        if (id !== codexTurn) anchor = null;
+        codexTurn = id;
+      }
       if (v.type === "session_meta" && (p.forked_from_id || object(p.source).subagent))
         history.warnings.push("Fork/child history: inherited usage must be excluded before adding to parent totals.");
       if (v.type === "response_item") {
@@ -147,6 +154,8 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
       } else if (v.type === "token_usage_record") {
         const id = string(p.response_id);
         if (!id) throw Error("MissingResponseIdentity");
+        if (codexTurn && string(p.turn_id) && p.turn_id !== codexTurn && !responseAnchors.has(id))
+          responseAnchors.set(id, null);
         receipt(id, usage(p.usage, provider), line);
       } else if (v.type === "event_msg" && p.type === "token_count" && !direct) {
         const info = object(p.info);
@@ -178,8 +187,16 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
         ["task_complete", "turn_aborted", "turn_complete"].includes(string(p.type))
       ) {
         emit("lifecycle", string(p.type), line, at);
-      } else if (v.type === "compacted")
+        if (!codexTurn || !p.turn_id || p.turn_id === codexTurn) anchor = null;
+      } else if (v.type === "compacted") {
+        const id = string(p.compaction_response_id);
+        if (id) {
+          responseAnchors.set(id, null);
+          for (const entry of receiptGroups.get(id) ?? []) entry.event = null;
+        }
+        anchor = null;
         emit("lifecycle", "Context compacted; retain existing goals and episodes.", line, at);
+      }
     } else {
       if (v.isSidechain) history.warnings.push("Child transcript; parent usage is not included.");
       if (v.type === "assistant" || v.type === "user") {

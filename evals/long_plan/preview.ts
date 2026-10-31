@@ -13,7 +13,10 @@ for (const directory of process.argv.slice(2)) {
     review = fs.existsSync(reviewPath) ? JSON.parse(fs.readFileSync(reviewPath, "utf8")) : report;
   for (const result of report.cases) {
     const scored = review.cases.find((c: { id: string }) => c.id === result.id) ?? result;
-    const history: History = JSON.parse(fs.readFileSync(path.join(directory, `${result.id}.history.json`), "utf8"));
+    const accounted = path.join(directory, `${result.id}.accounted.history.json`);
+    const history: History = JSON.parse(
+      fs.readFileSync(fs.existsSync(accounted) ? accounted : path.join(directory, `${result.id}.history.json`), "utf8"),
+    );
     const calls = JSON.parse(fs.readFileSync(path.join(directory, `${result.id}.calls.json`), "utf8"));
     const checkpoints = calls
       .filter((c: { state?: plan.State }) => c.state)

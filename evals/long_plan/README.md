@@ -133,8 +133,8 @@ not the distribution of everyday coding sessions.
 
 Both long replays reached the end. The plan-project replay produced 14 episodes
 and 60 steps over 74 checkpoints; the browser replay produced 15 episodes and 73
-steps over 59 accepted checkpoints. They assigned 99.2% and 98.7% of recorded
-tokens respectively. The review adds event anchors for episode continuity,
+steps over 59 accepted checkpoints. After the accounting correction below, they
+assign 97.7% and 98.7% of recorded tokens respectively. The review adds event anchors for episode continuity,
 separate subproblems, recovery evidence and ordinary feedback without setbacks.
 These are development checks added after inspecting the histories, not holdouts.
 
@@ -171,6 +171,17 @@ checkpoint is a completed turn and correctly shows no play icons. The full plan
 project's merge checkpoint (event 295) also has no play icon: the commit, final
 reply and task completion have all occurred. Runtime/viewer protocol 3 and
 saved-format 6 remain unchanged.
+
+The full plan-project replay exposed a token-attribution error after the merge.
+A new turn's compaction receipt at source line 902 inherited the old commit's
+anchor, adding 247,689 tokens to a completed step. Codex turn boundaries now clear
+that fallback anchor, response IDs preserve genuine late updates to their
+original work, and identified compaction receipts stay unassigned. The commit
+step remains at 972,580 tokens across checkpoints 295–297; the whole-session
+total still includes the compaction. The browser uses the separate accounted
+history after `report.ts --refresh-usage`. Original histories, model patches and
+reports remain unchanged; all five full-session histories have identical model
+evidence and identical input, output and cached totals after recalculation.
 
 ## 2026-10-31 results
 
