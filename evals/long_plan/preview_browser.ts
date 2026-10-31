@@ -61,12 +61,13 @@ function render() {
   for (const row of grid(out.buffered(), cols, rows)) {
     const line = document.createElement("div");
     line.className = "screen-row";
-    for (const [ch, fg, bg, bold] of row) {
+    for (const [ch, fg, bg, bold, , , strike] of row) {
       const cell = document.createElement("span");
       cell.textContent = ch;
       cell.style.color = color(fg, "text");
       cell.style.backgroundColor = color(bg, "bg");
       if (bold) cell.style.fontWeight = "700";
+      if (strike) cell.style.textDecorationLine = "line-through";
       line.append(cell);
     }
     fragment.append(line);

@@ -8,6 +8,7 @@ export type Input = { state: plan.State; events: plan.Event[]; support: plan.Eve
 export type Snapshot = {
   nodes: plan.Node[];
   focus: string | null;
+  focus_step: string | null;
   counts: Record<string, Counts>;
   unassigned: Counts;
   known: boolean;
@@ -36,6 +37,7 @@ export function content(input: Input) {
 export const emptyView = (): Snapshot => ({
   nodes: [],
   focus: null,
+  focus_step: null,
   counts: {},
   unassigned: zero(),
   known: false,
@@ -85,11 +87,15 @@ export function decode(value: unknown): Snapshot {
     ],
   ).state.nodes;
   const ledger = object(v.counts);
-  const focus = v.focus ?? null;
+  const focus = v.focus ?? null,
+    step = v.focus_step ?? null;
   if (focus !== null && !nodes.some(n => n.id === focus && n.kind === "episode")) throw Error("InvalidRoadmap");
+  if (step !== null && !nodes.some(n => n.id === step && n.kind === "step" && n.parent === focus))
+    throw Error("InvalidRoadmap");
   return {
     nodes,
     focus: focus as string | null,
+    focus_step: step as string | null,
     counts: Object.fromEntries(nodes.map(n => [n.id, counts(ledger[n.id])])),
     unassigned: counts(v.unassigned),
     known: v.known,
@@ -99,9 +105,12 @@ export function decode(value: unknown): Snapshot {
 }
 
 /** Latest attributed work determines focus; completion and unassigned events do not move it. */
+export function focusStep(spans: plan.Span[], previous: string | null = null): string | null {
+  return spans.findLast(s => s.node !== null)?.node ?? previous;
+}
 export function focusEpisode(nodes: plan.Node[], spans: plan.Span[], previous: string | null = null): string | null {
-  const latest = spans.findLast(s => s.node !== null),
-    step = nodes.find(n => n.id === latest?.node && n.kind === "step");
+  const id = focusStep(spans),
+    step = nodes.find(n => n.id === id && n.kind === "step");
   return step?.parent ?? previous;
 }
 
@@ -109,6 +118,7 @@ export function focusEpisode(nodes: plan.Node[], spans: plan.Span[], previous: s
 export class Roadmap {
   state = plan.empty();
   focus: string | null = null;
+  focus_step: string | null = null;
   pending: plan.Event[] = [];
   support: plan.Event[] = [];
   receipts: { event: number; tokens: Counts }[] = [];
@@ -210,6 +220,7 @@ export class Roadmap {
     }
     const parents = new Map(applied.nodes.map(n => [n.id, n.parent]));
     this.focus = focusEpisode(applied.nodes, applied.spans, this.focus);
+    this.focus_step = focusStep(applied.spans, this.focus_step);
     this.tail_node = applied.spans.at(-1)?.node ?? null;
     for (const node of applied.nodes) this.counts[node.id] ??= zero();
     for (const r of this.receipts.filter(r => r.event <= applied.through)) {
@@ -241,6 +252,7 @@ export class Roadmap {
     return {
       nodes: this.state.nodes,
       focus: this.focus,
+      focus_step: this.focus_step,
       counts: this.counts,
       unassigned: this.receipts.reduce((n, r) => add(n, r.tokens), this.unassigned),
       known: this.known,
@@ -261,6 +273,7 @@ export class Roadmap {
     road.state = { nodes: saved.nodes, spans: [], through: integer("through") };
     Object.assign(road, {
       focus: saved.focus,
+      focus_step: saved.focus_step,
       counts: saved.counts,
       unassigned: counts(v.unassigned),
       known: saved.known,

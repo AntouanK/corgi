@@ -11,31 +11,52 @@ export class State {
     this.actor = 0;
   }
 }
-type Row = { node: Node; depth: number; continued?: boolean };
-const rowHeight = (row: Row) => (row.node.bump ? 2 : 1);
+type Row =
+  | { kind: "node"; node: Node; depth: number }
+  | { kind: "more"; parent: Node; count: number }
+  | { kind: "pending"; parent: Node };
+const rowHeight = (row: Row) => (row.kind === "node" && row.node.bump ? 2 : 1);
+const currentStep = (view: roadmap.Snapshot, node: Node) => node.id === view.focus_step && node.state === "active";
 export function tail(view: roadmap.Snapshot, count: number) {
   const all: Row[] = [];
-  const episodes: Node[] = [];
-  for (const goal of view.nodes.filter(n => n.kind === "goal")) {
-    episodes.push(...view.nodes.filter(n => n.parent === goal.id));
-  }
-  // Returning to an older episode keeps its latest work in the tail.
+  const episodes = view.nodes.filter(n => n.kind === "episode");
+  const step = view.nodes.find(n => n.id === view.focus_step);
+  // Returning to earlier work keeps it in the tail.
   const ordered = [...episodes.filter(n => n.id !== view.focus), ...episodes.filter(n => n.id === view.focus)];
   for (const episode of ordered) {
-    all.push({ node: episode, depth: 0 });
-    for (const step of view.nodes.filter(n => n.parent === episode.id)) all.push({ node: step, depth: 1 });
+    all.push({ kind: "node", node: episode, depth: 0 });
+    const steps = view.nodes.filter(n => n.parent === episode.id);
+    for (const step of [...steps.filter(n => !currentStep(view, n)), ...steps.filter(n => currentStep(view, n))])
+      all.push({ kind: "node", node: step, depth: 1 });
+    if (
+      episode.id === view.focus &&
+      episode.state === "active" &&
+      (!step || ["done", "abandoned", "planned"].includes(step.state))
+    )
+      all.push({ kind: "pending", parent: episode });
   }
   let rows: Row[] = [],
     used = 0;
   for (let i = all.length - 1; i >= 0; i--) {
     used += rowHeight(all[i]);
     if (used > count) break;
-    const parent = all[i].depth === 1 ? view.nodes.find(n => n.id === all[i].node.parent) : null;
-    if (used + (parent ? 1 : 0) > count) continue;
-    rows = all.slice(i);
-    if (parent) rows.unshift({ node: parent, depth: 0, continued: true });
+    const first = all[i];
+    const parent =
+      first.kind === "node"
+        ? first.depth === 1
+          ? view.nodes.find(n => n.id === first.node.parent)
+          : null
+        : first.parent;
+    const candidate = all.slice(i);
+    if (parent) {
+      const hidden = all.slice(0, i).filter(r => r.kind === "node" && r.node.parent === parent.id).length;
+      const minimum = rowHeight(all.at(-1)!) + 1;
+      if (hidden >= 2 && count > minimum) candidate.unshift({ kind: "more", parent, count: hidden });
+      candidate.unshift({ kind: "node", node: parent, depth: 0 });
+    }
+    if (candidate.reduce((sum, r) => sum + rowHeight(r), 0) <= count) rows = candidate;
   }
-  return { rows, hidden: all.length - rows.length };
+  return { rows, hidden: all.filter(r => r.kind === "node").length - rows.filter(r => r.kind === "node").length };
 }
 export function key(input: string): Action | null {
   return input === "\x1b" ? { name: "plan-close" } : null;
@@ -49,7 +70,7 @@ export const capacity = (rect: Rect) => Math.max(1, rect.h - 7);
 export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Snapshot) {
   const line = (y: number, value: string, tone: palette.Token = "text") => {
     if (y < 0 || y >= rect.h) return;
-    const style = new palette.Style({ fg: tone, bg: "surface", bold: tone === "strong" }),
+    const style = new palette.Style({ fg: tone, bg: "surface", bold: tone === "strong" || tone === "accent" }),
       clipped = text.ellipsis(value, rect.w),
       padded = clipped + " ".repeat(Math.max(0, rect.w - text.displayWidth(clipped)));
     w.write(`\x1b[${rect.y + y + 1};${rect.x + 1}H${style.sgr()}${padded}`);
@@ -61,7 +82,8 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
     return;
   }
   const { rows, hidden } = tail(view, capacity(rect)),
-    last = rows.at(-1)?.node,
+    lastRow = rows.at(-1),
+    last = lastRow?.kind === "node" ? lastRow.node : lastRow?.parent,
     episode = last?.kind === "step" ? view.nodes.find(n => n.id === last.parent) : last,
     goal = view.nodes.find(n => n.id === episode?.parent) ?? view.nodes.findLast(n => n.kind === "goal");
   const observed = view.nodes
@@ -91,32 +113,52 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
   };
   row(3, "  Episode / step", metric(["Tokens", "Calls", "Cached"]), "faint");
   let y = 4;
-  rows.forEach(({ node, depth, continued }) => {
+  const mark = (column: number, value: string, color: palette.Token, bold = false, strike = false) => {
+    const style = new palette.Style({ fg: color, bg: "surface", bold, strike });
+    w.write(`\x1b[${rect.y + y + 1};${rect.x + column + 1}H${style.sgr()}${value}`);
+  };
+  rows.forEach((entry, i) => {
+    const next = rows[i + 1],
+      last = !next || (next.kind === "node" && next.depth === 0);
+    if (entry.kind !== "node") {
+      line(y++, `    ${last ? "╰" : "├"} …${entry.kind === "more" ? ` ${entry.count} more` : ""}`, "faint");
+      return;
+    }
+    const { node, depth } = entry;
     const focused = node.id === view.focus,
+      current = currentStep(view, node),
       closed =
         node.state === "done" ||
         node.state === "abandoned" ||
-        (node.state === "failed" && node.bump?.state === "resolved"),
-      tone: palette.Token = focused ? "strong" : closed ? "muted" : node.state === "planned" ? "faint" : "text";
-    const prefix = "  " + "  ".repeat(depth),
-      marker = focused ? "▶" : " ",
-      issue = node.bump ? "!" : " ",
+        (node.state === "failed" && node.bump?.state === "resolved");
+    let tone: palette.Token = "text";
+    if (current) tone = "accent";
+    else if (focused) tone = "strong";
+    else if (closed) tone = "muted";
+    else if (node.state === "planned") tone = "faint";
+    const branch = current ? "┣" : last ? "╰" : "├",
+      prefix = depth ? "    " + branch : "  ",
+      active = focused || current,
+      issue = node.bump ? (node.bump.state === "resolved" ? "!✓" : "!") : "",
+      marker = (active ? "▶" : "") + issue || " ",
       counts = view.counts[node.id] ?? roadmap.zero(),
-      suffix = node.state === "planned" ? " (planned)" : continued ? " (continued)" : "";
-    row(y, `${prefix}${marker} ${issue} ${node.title}${suffix}`, stats(counts), tone);
-    const mark = (column: number, value: string, color: palette.Token, bold = false) => {
-      const style = new palette.Style({ fg: color, bg: "surface", bold });
-      w.write(`\x1b[${rect.y + y + 1};${rect.x + column + 1}H${style.sgr()}${value}`);
-    };
-    if (focused) mark(prefix.length, marker, "accent", true);
-    if (node.bump) mark(prefix.length + 2, "!", node.bump.state === "open" ? "warm" : "muted");
+      suffix = node.state === "planned" ? " (planned)" : "";
+    row(y, `${prefix}${marker} ${node.title}${suffix}`, stats(counts), tone);
+    if (depth) mark(4, branch, current ? "accent" : "line", current);
+    if (active) mark(prefix.length, "▶", "accent", true);
+    if (issue) mark(prefix.length + (active ? 1 : 0), issue, node.bump!.state === "open" ? "warm" : "muted");
     y++;
     if (node.bump) {
-      const resolved = node.bump.state === "resolved";
-      line(y++, prefix + "    " + (resolved ? "Resolved · " : "") + node.bump.detail, resolved ? "faint" : "muted");
+      const resolved = node.bump.state === "resolved",
+        column = prefix.length + marker.length + 1,
+        detail = text.ellipsis(node.bump.detail, rect.w - column);
+      line(y, " ".repeat(column) + detail, resolved ? "faint" : "muted");
+      if (resolved) mark(column, detail, "faint", false, true);
+      if (!last || current) mark(4, current ? "┃" : "│", current ? "accent" : "line");
+      y++;
     }
   });
-  if (!rows.length) line(4, "  The plan will appear as Corgi observes work.", "muted");
+  if (!rows.length) line(4, "  …", "faint");
   line(rect.h - 3, "─".repeat(rect.w), "line");
   if (columns === 3) row(rect.h - 2, "  Total", stats(observed, view.partial), "strong");
   else {

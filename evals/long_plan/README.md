@@ -56,9 +56,15 @@ A step may carry a classified setback: verification, conflict, environment,
 permission, or approach. **!** marks a problem only on the affected step;
 it never propagates to parents.
 A setback adds one explanation line beneath its step. Resolved problems keep a
-dimmed **!** and a resolved label; the explanation remains visible.
-One green **▶** marks the current or most recently worked-on episode. Completed steps are dimmed; future work is labeled
-planned. Available tool-call counts and cached input remain visible.
+dimmed **!✓** and a struck-through explanation.
+A green **▶** marks the current or most recently worked-on episode. Its current
+active step also gets a green **▶** and bold text; completed steps are dimmed
+and future work is labeled planned. Older unfinished steps keep ordinary text. The active step
+stays in the tail when revisited. Sidebar branches connect steps and their
+explanations. Two or more hidden steps get a “… N more” row instead of a
+continued suffix; an unknown current step gets “…”. Available tool-call counts
+and cached input remain visible. The optional `focus_step` defaults to null in old snapshots;
+runtime/viewer protocol 3 and saved-format 6 are unchanged.
 An approach setback means rework caused by a disproved committed approach,
 not every exploratory hypothesis. Expected red tests, no-match searches,
 ordinary waits and error strings inside source code are negative controls.

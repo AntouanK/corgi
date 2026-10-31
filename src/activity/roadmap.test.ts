@@ -193,6 +193,12 @@ test("wire plans reject unsafe IDs, controls, fabricated parents, future bumps a
     (v: roadmap.Snapshot) => {
       v.focus = "s";
     },
+    (v: roadmap.Snapshot) => {
+      v.focus_step = "e";
+    },
+    (v: roadmap.Snapshot) => {
+      v.focus = null;
+    },
   ]) {
     const v = structuredClone(road.view());
     mutate(v);
@@ -206,12 +212,14 @@ test("focus follows attributed work and survives status changes, unassigned even
   road.observe("t", "working", "Running tests", new List(), usage(0n), 1);
   road.apply(road.request()!, patch());
   expect(road.view().focus).toBe("e");
+  expect(road.view().focus_step).toBe("s");
   road.observe("t", "idle", "Finished", new List(), usage(10n), 2);
   road.apply(
     road.request()!,
     JSON.stringify({ nodes: nodes().map(n => ({ ...n, state: "done" })), spans: [{ from: 2, to: 2, node: null }] }),
   );
   expect(road.view().focus).toBe("e");
+  expect(road.view().focus_step).toBe("s");
   road.observe("next", "working", "Again", new List(), usage(10n), 3);
   road.apply(road.request()!, patch(nodes(), 3));
   expect(road.view().focus).toBe("e");
@@ -222,8 +230,15 @@ test("focus follows attributed work and survives status changes, unassigned even
   road.observe("next", "working", "Run integration suite", new List(), usage(20n), 4);
   road.apply(road.request()!, JSON.stringify({ nodes: second, spans: [{ from: 4, to: 4, node: "s2" }] }));
   expect(road.view().focus).toBe("e2");
+  expect(road.view().focus_step).toBe("s2");
   const saved = JSON.parse(JSON.stringify(road));
-  for (const live of [true, false]) expect(roadmap.Roadmap.restore(saved, live).view().focus).toBe("e2");
+  for (const live of [true, false]) {
+    const restored = roadmap.Roadmap.restore(saved, live).view();
+    expect(restored.focus).toBe("e2");
+    expect(restored.focus_step).toBe("s2");
+  }
+  delete saved.view.focus_step;
+  expect(roadmap.Roadmap.restore(saved, true).view().focus_step).toBeNull();
   delete saved.view.focus;
   expect(roadmap.Roadmap.restore(saved, true).view().focus).toBeNull();
 });

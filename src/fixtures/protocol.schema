@@ -1144,3 +1144,5 @@ $.snapshot.conversations[].activity_plan?.partial: bool
 $.snapshot.conversations[].activity_plan?.limited: bool
 $.snapshot.conversations[].activity_plan?.focus: optional
 $.snapshot.conversations[].activity_plan?.focus?: string
+$.snapshot.conversations[].activity_plan?.focus_step: optional
+$.snapshot.conversations[].activity_plan?.focus_step?: string

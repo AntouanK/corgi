@@ -22,6 +22,7 @@ class Plans extends Summaries {
     );
     this.assertTrue(first.partial);
     this.assertEqual(first.focus, "e");
+    this.assertEqual(first.focus_step, "s");
     const viewer = await Viewer.create(this);
     const screen = async () => screen_text((await viewer.poll()).data, 100, 30).join("\n");
     try {
