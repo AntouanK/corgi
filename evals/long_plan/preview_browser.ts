@@ -120,4 +120,12 @@ document.querySelector("#ansi")!.addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 Object.assign(window, { planReview: { view, render } });
+const query = new URLSearchParams(location.search);
+if (data.some(d => d.key === query.get("replay"))) session.value = query.get("replay")!;
+if ([...height.options].some(o => o.value === query.get("rows"))) height.value = query.get("rows")!;
 change();
+const checkpoint = current().checkpoints.findIndex(c => c.through === Number(query.get("event")));
+if (checkpoint >= 0) {
+  slider.value = String(checkpoint);
+  render();
+}

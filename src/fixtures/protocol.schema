@@ -1146,3 +1146,12 @@ $.snapshot.conversations[].activity_plan?.focus: optional
 $.snapshot.conversations[].activity_plan?.focus?: string
 $.snapshot.conversations[].activity_plan?.focus_step: optional
 $.snapshot.conversations[].activity_plan?.focus_step?: string
+$.snapshot.conversations[].activity_plan?.visits: optional
+$.snapshot.conversations[].activity_plan?.visits[].step: string
+$.snapshot.conversations[].activity_plan?.visits[].from: usize
+$.snapshot.conversations[].activity_plan?.visits[].to: usize
+$.snapshot.conversations[].activity_plan?.visits[].counts.input: string
+$.snapshot.conversations[].activity_plan?.visits[].counts.cached: string
+$.snapshot.conversations[].activity_plan?.visits[].counts.output: string
+$.snapshot.conversations[].activity_plan?.visits[].counts.tools: optional
+$.snapshot.conversations[].activity_plan?.visits[].counts.tools?: string

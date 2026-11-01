@@ -41,6 +41,46 @@ const nodes: plan.Node[] = [
 const patch = { nodes, spans: [{ from: 1, to: 2, node: "s" }] };
 const state = () => plan.apply(plan.empty(), JSON.stringify(patch), events).state;
 
+test("replay visits preserve returns and charge late receipts to the generating visit", () => {
+  const steps = [...nodes, { ...nodes[2], id: "other", title: "Inspect test output" }];
+  const replay: plan.State = {
+    nodes: steps,
+    through: 5,
+    spans: [
+      { from: 1, to: 1, node: null },
+      { from: 2, to: 2, node: "s" },
+      { from: 3, to: 3, node: "other" },
+      { from: 4, to: 5, node: "s" },
+    ],
+  };
+  const data: history.History = {
+    provider: "codex",
+    source: "synthetic",
+    sha256: "synthetic",
+    warnings: [],
+    events: Array.from({ length: 5 }, (_, i) => ({ ...events[i === 0 ? 0 : 1], id: i + 1, line: i + 1 })),
+    receipts: [
+      { id: "a", event: 2, line: 2, tokens: { input: "100", cached: "50", output: "10" } },
+      { id: "b", event: 3, line: 3, tokens: { input: "200", cached: "100", output: "20" } },
+      { id: "c", event: 4, line: 4, tokens: { input: "300", cached: "150", output: "30" } },
+      { id: "late-a", event: 2, line: 5, tokens: { input: "50", cached: "25", output: "0" } },
+      { id: "unassigned", event: null, line: 5, tokens: { input: "80", cached: "40", output: "0" } },
+    ],
+  };
+  const before = plan.snapshot(replay, data, 4),
+    after = plan.snapshot(replay, data, 5);
+  expect(after.visits.map(v => [v.step, v.counts.input, v.counts.tools])).toEqual([
+    ["s", "150", "1"],
+    ["other", "200", "1"],
+    ["s", "300", "2"],
+  ]);
+  expect(before.visits[0].counts.input).toBe("100");
+  expect(after.visits[2].counts.input).toBe(before.visits[2].counts.input);
+  expect(after.counts.s.input).toBe("450");
+  expect(after.unassigned.input).toBe("80");
+  expect(after.visits.reduce((sum, v) => sum + BigInt(v.counts.input), 0n)).toBe(BigInt(after.counts.g.input));
+});
+
 test("Claude repeated message blocks and streaming usage count once; cache creation belongs to input", () => {
   const row = (output: number) => ({
     type: "assistant",

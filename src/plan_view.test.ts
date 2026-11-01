@@ -273,3 +273,59 @@ test("an episode without a known current step shows an ellipsis until attributio
   view.nodes.forEach(n => (n.state = "done"));
   expect(planView.tail(view, 3).rows.some(r => r.kind === "pending")).toBe(false);
 });
+
+test("resumed episodes and steps stay at the tail with visit costs and one pair of play icons", () => {
+  const view = fixture();
+  view.nodes[2].state = "active";
+  view.nodes[2].bump!.evidence = [1];
+  view.nodes.push(
+    { ...view.nodes[2], id: "s2", title: "Inspect retry logs", bump: null },
+    { ...view.nodes[1], id: "e2", title: "Verify cache accounting" },
+    { ...view.nodes[2], id: "s3", parent: "e2", title: "Check cache receipts", bump: null },
+  );
+  view.visits = roadmap.appendVisits(
+    [],
+    [
+      { from: 1, to: 2, node: "s" },
+      { from: 3, to: 4, node: "s2" },
+      { from: 5, to: 6, node: "s" },
+      { from: 7, to: 8, node: "s3" },
+      { from: 9, to: 10, node: "s" },
+    ],
+  );
+  view.visits.forEach((v, i) => {
+    v.counts = { input: String((i + 1) * 100), cached: "50", output: "0", tools: "1" };
+  });
+  const rows = planView.tail(view, 30).rows.filter(r => r.kind === "node");
+  expect(rows.map(r => r.node.id)).toEqual(["e", "s", "s2", "s", "e2", "s3", "e", "s"]);
+  expect(rows.filter(r => r.returned).map(r => r.node.id)).toEqual(["s", "e"]);
+  expect(rows.filter(r => r.current).map(r => r.node.id)).toEqual(["e", "s"]);
+  expect(rows.filter(r => r.depth === 0).map(r => r.counts?.input)).toEqual(["600", "400", "500"]);
+  expect(rows.filter(r => r.node.bump)).toHaveLength(1);
+  expect(planView.tail(view, 3).rows.flatMap(r => (r.kind === "node" ? [r.node.id] : []))).toEqual(["e", "s"]);
+  const terminal = new Terminal(112, 30),
+    rect = planView.geometry(112, 30);
+  try {
+    const out = new Writer();
+    planView.draw(out, rect, "Agent", view);
+    terminal.feed(out.buffered());
+    const screen = terminal.text();
+    expect((screen.match(/▶/g) ?? []).length).toBe(2);
+    expect(screen).toContain("▶ ↩ Correct retry offsets");
+    expect(screen).toContain("↩ Run resume tests");
+    expect(
+      screen
+        .split("\n")
+        .filter(l => l.includes("Run resume tests"))
+        .at(-1),
+    ).toMatch(/▶ Run resume tests\s+500\s+1\s+50/);
+    const last = planView.tail(view, 30).rows.at(-1)!;
+    expect(last.kind === "node" && last.current).toBe(true);
+    view.nodes[2].bump!.state = "resolved";
+    const updated = planView.tail(view, 30).rows.filter(r => r.kind === "node");
+    expect(updated[1].node.bump?.state).toBe("resolved");
+    expect(updated.at(-1)!.node.bump).toBeNull();
+  } finally {
+    terminal.destroy();
+  }
+});

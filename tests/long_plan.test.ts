@@ -73,5 +73,42 @@ class Plans extends Summaries {
       ["g", "e", "s"],
     );
   }
+  async test_returned_work_appends_at_the_tail_and_survives_reload() {
+    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true }));
+    const view = async () => (await this.session()).conversations.find((c: any) => c.agent.session === A).activity_plan;
+    await this.start_turn("first", false);
+    await this.until(async () => (await view()).visits?.length === 1);
+    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, plan_step: "other" }));
+    await this.start_turn("second", false);
+    this.tools(1, "check receipts");
+    await this.advance(10);
+    await this.until(async () => (await view()).visits.at(-1)?.step === "s2");
+    const earlier = (await view()).visits[0];
+    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true }));
+    await this.start_turn("return", false);
+    this.tools(1, "check focus");
+    await this.advance(10);
+    await this.until(async () => (await view()).visits.at(-1)?.step === "s");
+    this.assertEqual(
+      (await view()).visits.map((v: any) => v.step),
+      ["s", "s2", "s"],
+    );
+    this.assertEqual((await view()).visits[0], earlier);
+    const viewer = await Viewer.create(this);
+    try {
+      await viewer.input("\x02P");
+      const screen = async () => screen_text((await viewer.poll()).data, 100, 30).join("\n");
+      await this.until(async () => (await screen()).includes("▶ ↩ Repair focus transitions"));
+      const drawn = await screen();
+      this.assertEqual((drawn.match(/▶/g) ?? []).length, 2);
+      this.assertTrue(drawn.lastIndexOf("Trace focus changes") > drawn.indexOf("Check receipt totals"));
+      const before = (await view()).visits;
+      await this.rpc({ op: "server.reload", executable: EXE });
+      this.assertEqual((await view()).visits, before);
+      await this.until(async () => (await screen()).includes("▶ ↩ Repair focus transitions"));
+    } finally {
+      await viewer.close();
+    }
+  }
 }
 registerCase("Plans", Plans, { inherited: false });

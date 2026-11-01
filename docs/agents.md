@@ -301,9 +301,10 @@ problems marked ! only on the affected step. Each problem has a short explanatio
 below it; resolved problems use !✓ and strike through that explanation.
 A green ▶ marks the focused episode while it is active. Its current active
 step also gets a green ▶ and bold text; completed episodes and steps are dimmed
-and future work is labeled planned. Older unfinished steps keep ordinary text.
-Episodes and steps retain their creation order when focus changes. The tail keeps current work visible
-in place alongside the latest rows, with omission counts between them. Sidebar
+while older unfinished steps keep ordinary text. The trail follows attributed work
+in time order. Returning to an earlier episode or step appends a new visit marked
+↩ at the tail; earlier visits stay in place. Each row counts only work during that
+visit. A problem stays on the visit where it arose, even after returning. Sidebar
 branches (├, ╰, │ and the focused ┣/┃) connect each block. Two or more hidden steps get a “… N more”
 row; an unknown current step gets “…”. Tokens, tool-call counts and cached input
 appear in columns beside the work and in the total row. Missing usage fields
@@ -315,8 +316,10 @@ is attributed.
 Live costs count observed intervals after an opening baseline, include cached input once, exclude child
 and summarizer usage, and retain unassigned cost. They are partial coverage,
 not full transcript accounting. Plan and pending intervals survive reload;
-cold recovery establishes a new baseline. Missing fields default empty without
-changing protocol 3 or saved-format 6.
+cold recovery establishes a new baseline. The optional visits list preserves
+chronology and costs across reloads. Older plans retain their existing step totals
+as entries without event ranges; newly observed work appends after them. No
+protocol 3 or saved-format 6 migration is needed.
 
 The shared reducer prevents lost failed attempts and contradictory completed
 parents, but semantic errors remain in real replays. See

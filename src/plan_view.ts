@@ -12,17 +12,67 @@ export class State {
   }
 }
 type Row =
-  | { kind: "node"; node: Node; depth: number }
+  | { kind: "node"; node: Node; depth: number; counts?: roadmap.Counts; current?: boolean; returned?: boolean }
   | { kind: "more"; parent: Node; count: number }
   | { kind: "pending"; parent: Node };
 const rowHeight = (row: Row) => (row.kind === "node" && row.node.bump ? 2 : 1);
 const currentStep = (view: roadmap.Snapshot, node: Node) => node.id === view.focus_step && node.state === "active";
-export function tail(view: roadmap.Snapshot, count: number) {
+type Block = { episode: Node; heading: Extract<Row, { kind: "node" }>; children: Row[] };
+function blocks(view: roadmap.Snapshot): Block[] {
+  if (view.visits.length) {
+    const nodes = new Map(view.nodes.map(n => [n.id, n])),
+      seenEpisodes = new Set<string>(),
+      seenSteps = new Set<string>(),
+      bumps = new Map<string, number>(),
+      blocks: Block[] = [];
+    for (const node of view.nodes) {
+      if (!node.bump) continue;
+      const failure = Math.min(...node.bump.evidence);
+      const index = view.visits.findLastIndex(v => v.step === node.id && v.from <= failure);
+      bumps.set(node.id, index < 0 ? view.visits.findIndex(v => v.step === node.id) : index);
+    }
+    view.visits.forEach((visit, i) => {
+      const step = nodes.get(visit.step)!,
+        episode = nodes.get(step.parent!)!;
+      let block = blocks.at(-1);
+      if (block?.episode.id !== episode.id) {
+        block = {
+          episode,
+          heading: {
+            kind: "node",
+            node: episode,
+            depth: 0,
+            counts: roadmap.zero(),
+            current: false,
+            returned: seenEpisodes.has(episode.id),
+          },
+          children: [],
+        };
+        blocks.push(block);
+        seenEpisodes.add(episode.id);
+      }
+      const latest = i === view.visits.length - 1;
+      block.heading.counts = roadmap.add(block.heading.counts!, visit.counts);
+      block.heading.current = latest && episode.id === view.focus && episode.state === "active";
+      block.children.push({
+        kind: "node",
+        node: { ...step, bump: bumps.get(step.id) === i ? step.bump : null },
+        depth: 1,
+        counts: visit.counts,
+        current: latest && currentStep(view, step),
+        returned: seenSteps.has(step.id) && !block.heading.returned,
+      });
+      seenSteps.add(step.id);
+      if (block.heading.current && ["done", "abandoned", "planned"].includes(step.state))
+        block.children.push({ kind: "pending", parent: episode });
+    });
+    return blocks;
+  }
   const step = view.nodes.find(n => n.id === view.focus_step);
-  const blocks = view.nodes
+  return view.nodes
     .filter(n => n.kind === "episode")
     .map(episode => {
-      const heading: Row = { kind: "node", node: episode, depth: 0 };
+      const heading: Block["heading"] = { kind: "node", node: episode, depth: 0 };
       const children: Row[] = view.nodes
         .filter(n => n.parent === episode.id)
         .map(node => ({ kind: "node", node, depth: 1 }));
@@ -34,18 +84,22 @@ export function tail(view: roadmap.Snapshot, count: number) {
         children.push({ kind: "pending", parent: episode });
       return { episode, heading, children };
     });
-  const all = blocks.flatMap(b => [b.heading, ...b.children]);
+}
+export function tail(view: roadmap.Snapshot, count: number) {
+  const groups = blocks(view);
+  const all = groups.flatMap(b => [b.heading, ...b.children]);
   const pinned = all.filter(
     r =>
       r.kind === "pending" ||
-      (r.kind === "node" && (currentStep(view, r.node) || (r.node.id === view.focus && r.node.state === "active"))),
+      (r.kind === "node" &&
+        (r.current ?? (currentStep(view, r.node) || (r.node.id === view.focus && r.node.state === "active")))),
   );
   let rows: Row[] = [];
   // Keep current work visible without changing the order of any history rows.
   for (let start = all.length; start >= 0; start--) {
     const selected = new Set([...all.slice(start), ...pinned]);
     let candidate: Row[] = [];
-    for (const { episode, heading, children } of blocks) {
+    for (const { episode, heading, children } of groups) {
       if (!selected.has(heading) && !children.some(r => selected.has(r))) continue;
       candidate.push(heading);
       let hidden = 0;
@@ -135,8 +189,8 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
       return;
     }
     const { node, depth } = entry;
-    const focused = node.id === view.focus && node.state === "active",
-      current = currentStep(view, node),
+    const focused = depth === 0 && (entry.current ?? (node.id === view.focus && node.state === "active")),
+      current = depth === 1 && (entry.current ?? currentStep(view, node)),
       closed =
         node.state === "done" ||
         node.state === "abandoned" ||
@@ -151,9 +205,9 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
       active = focused || current,
       issue = node.bump ? (node.bump.state === "resolved" ? "!✓" : "!") : "",
       marker = (active ? "▶" : "") + issue || " ",
-      counts = view.counts[node.id] ?? roadmap.zero(),
+      counts = entry.counts ?? view.counts[node.id] ?? roadmap.zero(),
       suffix = node.state === "planned" ? " (planned)" : "";
-    row(y, `${prefix}${marker} ${node.title}${suffix}`, stats(counts), tone);
+    row(y, `${prefix}${marker} ${entry.returned ? "↩ " : ""}${node.title}${suffix}`, stats(counts), tone);
     if (depth) mark(4, branch, current ? "accent" : "line", current);
     if (active) mark(prefix.length, "▶", "accent", true);
     if (issue) mark(prefix.length + (active ? 1 : 0), issue, node.bump!.state === "open" ? "warm" : "muted");

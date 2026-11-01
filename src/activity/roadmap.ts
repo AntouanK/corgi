@@ -4,9 +4,11 @@ import { clip } from "./tools";
 import type { View } from "../usage/live";
 
 export type Counts = { input: string; cached: string; output: string; tools?: string };
+export type Visit = { step: string; from: number; to: number; counts: Counts };
 export type Input = { state: plan.State; events: plan.Event[]; support: plan.Event[] };
 export type Snapshot = {
   nodes: plan.Node[];
+  visits: Visit[];
   focus: string | null;
   focus_step: string | null;
   counts: Record<string, Counts>;
@@ -36,6 +38,7 @@ export function content(input: Input) {
 }
 export const emptyView = (): Snapshot => ({
   nodes: [],
+  visits: [],
   focus: null,
   focus_step: null,
   counts: {},
@@ -92,8 +95,35 @@ export function decode(value: unknown): Snapshot {
   if (focus !== null && !nodes.some(n => n.id === focus && n.kind === "episode")) throw Error("InvalidRoadmap");
   if (step !== null && !nodes.some(n => n.id === step && n.kind === "step" && n.parent === focus))
     throw Error("InvalidRoadmap");
+  const visits =
+    v.visits ??
+    nodes
+      .filter(n => n.kind === "step" && n.state !== "planned")
+      .map(n => ({
+        step: n.id,
+        from: 0,
+        to: 0,
+        counts: ledger[n.id],
+      }));
+  if (!Array.isArray(visits) || visits.length > 4096) throw Error("InvalidRoadmap");
+  let end = 0;
+  const decoded = visits.map(value => {
+    const visit = object(value);
+    if (
+      !nodes.some(n => n.id === visit.step && n.kind === "step") ||
+      !Number.isSafeInteger(visit.from) ||
+      !Number.isSafeInteger(visit.to) ||
+      Number(visit.from) < 0 ||
+      Number(visit.to) < Number(visit.from) ||
+      (visit.from === 0 ? visit.to !== 0 || end !== 0 : Number(visit.from) <= end)
+    )
+      throw Error("InvalidRoadmap");
+    end = Number(visit.to);
+    return { step: String(visit.step), from: Number(visit.from), to: end, counts: counts(visit.counts) };
+  });
   return {
     nodes,
+    visits: decoded,
     focus: focus as string | null,
     focus_step: step as string | null,
     counts: Object.fromEntries(nodes.map(n => [n.id, counts(ledger[n.id])])),
@@ -114,9 +144,25 @@ export function focusEpisode(nodes: plan.Node[], spans: plan.Span[], previous: s
   return step?.parent ?? previous;
 }
 
+/** Consecutive work stays together; returning after other work starts a new visit. */
+export function appendVisits(previous: Visit[], spans: plan.Span[]): Visit[] {
+  const visits = previous.map(v => ({ ...v }));
+  for (const span of spans) {
+    if (span.node === null) continue;
+    const last = visits.at(-1);
+    if (last?.step === span.node && last.to > 0) last.to = span.to;
+    else visits.push({ step: span.node, from: span.from, to: span.to, counts: zero() });
+  }
+  return visits;
+}
+export function visitAt(visits: Visit[], step: string, event: number) {
+  return visits.find(v => v.step === step && v.from <= event && event <= v.to);
+}
+
 /** Observed intervals only. The first sample is a baseline, never historical cost assigned to new work. */
 export class Roadmap {
   state = plan.empty();
+  visits: Visit[] = [];
   focus: string | null = null;
   focus_step: string | null = null;
   pending: plan.Event[] = [];
@@ -214,10 +260,12 @@ export class Roadmap {
   apply(input: Input, raw: string) {
     if (input.state.through !== this.state.through) return false;
     const applied = plan.apply(this.state, raw, input.events).state;
-    if (applied.nodes.length > 256) {
+    const visits = appendVisits(this.visits, applied.spans);
+    if (applied.nodes.length > 256 || visits.length > 4096) {
       this.limited = true;
       return false;
     }
+    this.visits = visits;
     const parents = new Map(applied.nodes.map(n => [n.id, n.parent]));
     this.focus = focusEpisode(applied.nodes, applied.spans, this.focus);
     this.focus_step = focusStep(applied.spans, this.focus_step);
@@ -226,6 +274,8 @@ export class Roadmap {
     for (const r of this.receipts.filter(r => r.event <= applied.through)) {
       let id = applied.spans.find(s => r.event >= s.from && r.event <= s.to)?.node;
       if (!id) this.unassigned = add(this.unassigned, r.tokens);
+      const visit = id ? visitAt(this.visits, id, r.event) : undefined;
+      if (visit) visit.counts = add(visit.counts, r.tokens);
       while (id) {
         this.counts[id] = add(this.counts[id], r.tokens);
         id = parents.get(id);
@@ -243,6 +293,8 @@ export class Roadmap {
   }
   attribute(id: string | null, tokens: Counts) {
     if (!id) this.unassigned = add(this.unassigned, tokens);
+    const visit = this.visits.at(-1);
+    if (visit?.step === id) visit.counts = add(visit.counts, tokens);
     while (id) {
       this.counts[id] = add(this.counts[id] ?? zero(), tokens);
       id = this.state.nodes.find(n => n.id === id)?.parent ?? null;
@@ -251,6 +303,7 @@ export class Roadmap {
   view(): Snapshot {
     return {
       nodes: this.state.nodes,
+      visits: this.visits,
       focus: this.focus,
       focus_step: this.focus_step,
       counts: this.counts,
@@ -272,6 +325,7 @@ export class Roadmap {
     };
     road.state = { nodes: saved.nodes, spans: [], through: integer("through") };
     Object.assign(road, {
+      visits: saved.visits,
       focus: saved.focus,
       focus_step: saved.focus_step,
       counts: saved.counts,
@@ -280,6 +334,7 @@ export class Roadmap {
       partial: saved.partial,
       limited: saved.limited,
     });
+    if (road.visits.some(v => v.to > road.state.through)) throw Error("InvalidRoadmap");
     const events = (value: unknown, limit: number): plan.Event[] => {
       if (!Array.isArray(value) || value.length > limit) throw Error("InvalidRoadmap");
       return value.map(e => {

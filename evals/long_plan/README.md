@@ -41,7 +41,7 @@ input is included in tokens, never added a second time.
 
 Plans, pending observations and costs survive checkpoint/handoff. Cold recovery
 establishes a fresh usage baseline. Queues retain 32 observations and 128 short
-support excerpts; a request handles at most eight observations. At 256 nodes the
+support excerpts; a request handles at most eight observations. At 256 nodes or 4096 visits the
 plan reports its history limit and retains further cost as unassigned. These
 bounds protect the daemon; they are not a complete transcript archive.
 
@@ -59,13 +59,19 @@ A setback adds one explanation line beneath its step. Resolved problems keep a
 dimmed **!✓** and a struck-through explanation.
 A green **▶** marks the focused episode while it is active. Its current active
 step also gets a green **▶** and bold text; completed episodes and steps are dimmed
-and future work is labeled planned. Older unfinished steps keep ordinary text. Episodes and steps keep their creation order
-when focus changes. The active step stays visible in that order alongside the
-latest rows, with omission counts between them. Sidebar branches connect steps and their
-explanations. Two or more hidden steps get a “… N more” row instead of a
+while older unfinished steps keep ordinary text. The trail follows attributed
+work in time order. Switching to another step ends the visit; returning appends
+a new visit marked **↩** at the tail. Earlier visits stay in place. Consecutive
+work and neutral events do not create extra visits. Episode rows group consecutive
+visits to that episode and show their combined cost. Steps show only their visit
+cost; totals still count the whole conversation once. Late receipts stay with their
+generating visit. Problems appear on the visit where they arose, with recovery
+updating that explanation. Sidebar branches connect steps and their explanations. Two or more hidden steps get a “… N more” row instead of a
 continued suffix; an unknown current step gets “…”. Available tool-call counts
 and cached input remain visible. The optional `focus_step` defaults to null in old snapshots;
-runtime/viewer protocol 3 and saved-format 6 are unchanged.
+runtime/viewer protocol 3 and saved-format 6 are unchanged. The optional `visits`
+field persists chronology and cost. Older plans retain their step totals as
+entries with zero event ranges; new work appends after them without merging.
 An approach setback means rework caused by a disproved committed approach,
 not every exploratory hypothesis. Expected red tests, no-match searches,
 ordinary waits and error strings inside source code are negative controls.
@@ -89,7 +95,15 @@ bun run evals/long_plan/run.ts --manifest evals/long_plan/holdout.json --model c
 bun run evals/long_plan/run.ts --manifest evals/long_plan/todo_probe.json --ablation live-signals --model claude:claude-haiku-5-5
 bun run evals/long_plan/run.ts --manifest PRIVATE_MANIFEST --ablation live-signals --model codex:gpt-6-luna
 bun evals/long_plan/preview.ts RUN_DIRECTORY [RUN_DIRECTORY...]
+bun evals/long_plan/check_visits.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 ```
+
+`check_visits.ts` checks chronological prefixes, per-visit token/cache/call
+conservation, and active work at the tail at several heights, without model calls.
+The recorded development sessions and synthetic probes pass these checks at all
+276 accepted checkpoints, including 122 returns. Browser checks cover each at
+18, 24 and 34 rows. These rendering/accounting checks do not replace the semantic
+model checks or clear their existing findings.
 
 `preview.ts` builds `.lavish/long-plan-integrated.html` using the actual
 `src/plan_view.ts` renderer and Corgi palette. It includes recorded failures and

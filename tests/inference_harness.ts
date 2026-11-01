@@ -135,15 +135,22 @@ for await (const line of createInterface({ input: process.stdin })) {
             ? { kind: "verification", state: "open", detail: "Existing focus test fails", evidence: [to] }
             : null,
       });
+      const step = control.plan_step === "other" ? "s2" : "s";
+      const additions = input.tree.length
+        ? []
+        : [
+            node("g", null, "goal", "Restore terminal focus"),
+            node("e", "g", "episode", "Repair focus transitions"),
+            node("s", "e", "step", "Trace focus changes"),
+          ];
+      if (step === "s2" && !input.tree.some((n: { id: string }) => n.id === "s2"))
+        additions.push(
+          node("e2", "g", "episode", "Verify token receipts"),
+          node("s2", "e2", "step", "Check receipt totals"),
+        );
       result = JSON.stringify({
-        nodes: input.tree.length
-          ? []
-          : [
-              node("g", null, "goal", "Restore terminal focus"),
-              node("e", "g", "episode", "Repair focus transitions"),
-              node("s", "e", "step", "Trace focus changes"),
-            ],
-        spans: [{ from, to, node: "s" }],
+        nodes: additions,
+        spans: [{ from, to, node: step }],
       });
     }
     if ("raw" in control) result = control.raw;

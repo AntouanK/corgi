@@ -242,3 +242,73 @@ test("focus follows attributed work and survives status changes, unassigned even
   delete saved.view.focus;
   expect(roadmap.Roadmap.restore(saved, true).view().focus).toBeNull();
 });
+
+test("returning work appends a visit, keeps its own usage, and survives live and cold recovery", () => {
+  let road = new roadmap.Roadmap();
+  const items = [...nodes(), { ...nodes()[2], id: "other", title: "Inspect response logs" }];
+  const apply = (id: number, step: string, input: bigint, additions: plan.Node[] = []) => {
+    road.observe("t", "working", "Work " + id, new List(), usage(input, input / 2n), id);
+    road.apply(road.request()!, JSON.stringify({ nodes: additions, spans: [{ from: id, to: id, node: step }] }));
+  };
+  apply(1, "s", 100n, items);
+  apply(2, "s", 200n);
+  apply(3, "other", 500n);
+  const before = structuredClone(road.visits);
+  apply(4, "s", 700n);
+  expect(road.visits.slice(0, 2)).toEqual(before);
+  expect(road.visits.map(v => [v.step, v.from, v.to, v.counts.input])).toEqual([
+    ["s", 1, 2, "100"],
+    ["other", 3, 3, "300"],
+    ["s", 4, 4, "200"],
+  ]);
+  expect(road.visits.reduce((sum, v) => roadmap.add(sum, v.counts), roadmap.zero())).toEqual(road.counts.g);
+  const saved = JSON.parse(JSON.stringify(road));
+  for (const live of [true, false]) expect(roadmap.Roadmap.restore(saved, live).visits).toEqual(road.visits);
+  road = roadmap.Roadmap.restore(saved, true);
+  road.observe("t", "working", "Work 4", new List(), usage(750n, 375n), 5);
+  expect(road.visits[0].counts.input).toBe("100");
+  expect(road.visits[2].counts.input).toBe("250");
+  expect(roadmap.decode(road.view()).visits).toEqual(road.visits);
+  for (const mutate of [
+    (v: roadmap.Visit[]) => {
+      v[1].from = 2;
+    },
+    (v: roadmap.Visit[]) => {
+      v[0].step = "g";
+    },
+    (v: roadmap.Visit[]) => {
+      v[0].to = Number.MAX_SAFE_INTEGER + 1;
+    },
+    (v: roadmap.Visit[]) => {
+      v[0].counts.cached = "10000";
+    },
+  ]) {
+    const view = structuredClone(road.view());
+    mutate(view.visits);
+    expect(() => roadmap.decode(view)).toThrow("Invalid");
+  }
+  delete saved.view.visits;
+  road = roadmap.Roadmap.restore(saved, true);
+  expect(road.visits.every(v => v.from === 0 && v.to === 0)).toBe(true);
+  const legacy = structuredClone(road.visits);
+  apply(5, "s", 800n);
+  expect(road.visits.slice(0, -1)).toEqual(legacy);
+  expect(road.visits.at(-1)?.counts.input).toBe("100");
+});
+
+test("neutral events and unchanged observations do not create extra visits", () => {
+  const visits = roadmap.appendVisits(
+    [],
+    [
+      { from: 1, to: 1, node: null },
+      { from: 2, to: 3, node: "s" },
+      { from: 4, to: 4, node: null },
+      { from: 5, to: 5, node: "s" },
+    ],
+  );
+  expect(visits.map(v => [v.from, v.to])).toEqual([[2, 5]]);
+  expect(roadmap.appendVisits(visits, [{ from: 6, to: 6, node: null }])).toEqual(visits);
+  const next = roadmap.appendVisits(visits, [{ from: 6, to: 7, node: "s" }]);
+  expect(next[0].to).toBe(7);
+  expect(visits[0].to).toBe(5);
+});

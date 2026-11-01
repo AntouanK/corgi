@@ -561,3 +561,12 @@ $.conversations[].activity_plan?.receipts[].tokens.cached: string
 $.conversations[].activity_plan?.receipts[].tokens.output: string
 $.conversations[].activity_plan?.receipts[].tokens.tools: optional
 $.conversations[].activity_plan?.receipts[].tokens.tools?: string
+$.conversations[].activity_plan?.view.visits: optional
+$.conversations[].activity_plan?.view.visits[].step: string
+$.conversations[].activity_plan?.view.visits[].from: usize
+$.conversations[].activity_plan?.view.visits[].to: usize
+$.conversations[].activity_plan?.view.visits[].counts.input: string
+$.conversations[].activity_plan?.view.visits[].counts.cached: string
+$.conversations[].activity_plan?.view.visits[].counts.output: string
+$.conversations[].activity_plan?.view.visits[].counts.tools: optional
+$.conversations[].activity_plan?.view.visits[].counts.tools?: string
