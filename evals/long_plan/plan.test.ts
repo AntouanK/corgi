@@ -81,6 +81,75 @@ test("replay visits preserve returns and charge late receipts to the generating 
   expect(after.visits.reduce((sum, v) => sum + BigInt(v.counts.input), 0n)).toBe(BigInt(after.counts.g.input));
 });
 
+test("replay activity follows provider turns through compaction without adding model evidence", () => {
+  const data = history.decode(
+    jsonl(
+      { type: "event_msg", payload: { type: "task_started", turn_id: "first" } },
+      {
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Finished the merge" }] },
+      },
+      { type: "event_msg", payload: { type: "task_complete", turn_id: "first" } },
+      { type: "event_msg", payload: { type: "task_started", turn_id: "next" } },
+      { type: "event_msg", payload: { type: "turn_aborted", turn_id: "first" } },
+      { type: "compacted", payload: {} },
+      {
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Continue with integration" }],
+        },
+      },
+      { type: "event_msg", payload: { type: "task_complete", turn_id: "next" } },
+    ),
+    "codex",
+  );
+  expect(data.events.map(e => e.kind)).toEqual([
+    "assistant",
+    "lifecycle",
+    "lifecycle",
+    "lifecycle",
+    "user",
+    "lifecycle",
+  ]);
+  expect(history.runningAt(data.activity!, 3)).toBe(false);
+  expect(history.runningAt(data.activity!, 5)).toBe(true);
+  expect(history.runningAt(data.activity!, 6)).toBe(true);
+  expect(history.runningAt(data.activity!, 8)).toBe(false);
+  expect(history.runningAt([], 8)).toBeNull();
+});
+
+test("Claude end-turn and duration signals stop play without marking tool waits idle", () => {
+  const data = history.decode(
+    jsonl(
+      { type: "user", uuid: "u", message: { content: "Fix the tests" } },
+      {
+        type: "assistant",
+        message: {
+          id: "a",
+          content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "bun test" } }],
+          stop_reason: "tool_use",
+        },
+      },
+      {
+        type: "assistant",
+        message: { id: "b", content: [{ type: "text", text: "The tests pass" }], stop_reason: "end_turn" },
+      },
+      { type: "user", uuid: "v", message: { content: "Continue" } },
+      { type: "system", subtype: "turn_duration" },
+    ),
+    "claude",
+  );
+  expect([1, 2, 3, 4, 5].map(line => history.runningAt(data.activity!, line))).toEqual([
+    true,
+    true,
+    false,
+    true,
+    false,
+  ]);
+});
+
 test("Claude repeated message blocks and streaming usage count once; cache creation belongs to input", () => {
   const row = (output: number) => ({
     type: "assistant",

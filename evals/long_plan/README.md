@@ -67,7 +67,12 @@ visits to that episode and show their combined cost. Steps show only their visit
 cost; totals still count the whole conversation once. Late receipts stay with their
 generating visit. Problems appear on the visit where they arose, with recovery
 updating that explanation. Sidebar branches connect steps and their explanations. Two or more hidden steps get a “… N more” row instead of a
-continued suffix; an unknown current step gets “…”. Available tool-call counts
+continued suffix. Provider lifecycle gates play markers independently of inferred
+plan states. While running without a known active step, a green **▶ …** stays at
+the tail, under the active episode or on its own after a completed episode. It
+does not reopen work or charge its usage to the preceding step. Old replay
+artifacts obtain lifecycle from the frozen source without changing model evidence
+or accounting. Available tool-call counts
 and cached input remain visible. The optional `focus_step` defaults to null in old snapshots;
 runtime/viewer protocol 3 and saved-format 6 are unchanged. The optional `visits`
 field persists chronology and cost. Older plans retain their step totals as

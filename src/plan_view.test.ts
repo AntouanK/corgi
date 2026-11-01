@@ -329,3 +329,49 @@ test("resumed episodes and steps stay at the tail with visit costs and one pair 
     terminal.destroy();
   }
 });
+
+test("a running agent keeps a tail marker between named steps without reopening completed work", () => {
+  const view = fixture(),
+    terminal = new Terminal(100, 18),
+    rect = planView.geometry(100, 18);
+  view.nodes.forEach(n => {
+    n.state = "done";
+    n.bump = null;
+  });
+  view.visits = roadmap.appendVisits([], [{ from: 1, to: 1, node: "s" }]);
+  view.visits[0].counts = view.counts.s;
+  const before = structuredClone(view);
+  const draw = (running: boolean) => {
+    const out = new Writer();
+    planView.draw(out, rect, "Agent", view, running);
+    terminal.feed(out.buffered());
+    return terminal.text();
+  };
+  try {
+    expect(draw(true)).toContain("▶ …");
+    expect((terminal.text().match(/▶/g) ?? []).length).toBe(1);
+    expect(
+      terminal
+        .text()
+        .split("\n")
+        .find(l => l.includes("Run resume tests")),
+    ).not.toContain("▶");
+    expect(terminal.text()).toContain("╰  Run resume tests");
+    expect(planView.tail(view, 3, true).rows.at(-1)).toEqual({ kind: "pending", parent: null, active: true });
+    expect(view).toEqual(before);
+    expect(draw(false)).not.toContain("▶");
+    view.nodes[1].state = "active";
+    expect((draw(true).match(/▶/g) ?? []).length).toBe(2);
+    expect(terminal.text()).toContain("┣▶ …");
+    view.nodes[2].state = "active";
+    expect(draw(true)).not.toContain("▶ …");
+    expect((terminal.text().match(/▶/g) ?? []).length).toBe(2);
+    expect(draw(false)).not.toContain("▶");
+    const out = new Writer();
+    planView.draw(out, rect, "New agent", roadmap.emptyView(), true);
+    terminal.feed(out.buffered());
+    expect(terminal.text()).toContain("▶ …");
+  } finally {
+    terminal.destroy();
+  }
+});

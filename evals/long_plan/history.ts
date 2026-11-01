@@ -7,6 +7,7 @@ export type Provider = "codex" | "claude";
 export type Kind = Event["kind"];
 export type Tokens = { input: string; cached: string; output: string };
 export type Receipt = { id: string; event: number | null; line: number; tokens: Tokens };
+export type Activity = { line: number; running: boolean };
 export type History = {
   provider: Provider;
   source: string;
@@ -14,6 +15,7 @@ export type History = {
   accounting_hash?: string;
   events: Event[];
   receipts: Receipt[];
+  activity?: Activity[];
   warnings: string[];
 };
 export const object = (v: unknown): Record<string, unknown> =>
@@ -59,6 +61,16 @@ export function read(source: string, provider: Provider): History {
   return decode(fs.readFileSync(source, "utf8"), provider, source);
 }
 
+/** Supplement old frozen replays without changing their evidence or accounting. */
+export function activity(data: History): Activity[] {
+  if (data.activity) return data.activity;
+  if (!fs.existsSync(data.source)) return [];
+  return decode(fs.readFileSync(data.source, "utf8"), data.provider, data.source).activity!;
+}
+export function runningAt(activity: Activity[], throughLine: number): boolean | null {
+  return activity.findLast(a => a.line <= throughLine)?.running ?? null;
+}
+
 /** Recompute accounting without changing the evidence a recorded run saw. */
 export function reaccount(data: History): History {
   const last = Math.max(0, ...data.events.map(e => e.line), ...data.receipts.map(r => r.line));
@@ -75,6 +87,11 @@ export function reaccount(data: History): History {
 export function decode(raw: string, provider: Provider, source = "fixture"): History {
   const records = raw.split("\n").map(line => (line.trim() ? object(JSON.parse(line)) : {}));
   const history: History = { provider, source, sha256: hash(raw), events: [], receipts: [], warnings: [] };
+  const activity: Activity[] = [];
+  history.activity = activity;
+  const running = (value: boolean, line: number) => {
+    if (activity.at(-1)?.running !== value) activity.push({ line, running: value });
+  };
   const direct = records.some(v => v.type === "token_usage_record");
   const seen = new Set<string>(),
     counters = new Map<string, Tokens>(),
@@ -90,6 +107,7 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
     if (kind === "user") turn++;
     const event = { id: history.events.length + 1, line, at, turn, kind, text: clip(text) };
     history.events.push(event);
+    if (["user", "assistant", "reasoning", "tool", "plan", "result"].includes(kind)) running(true, line);
     if (["assistant", "reasoning", "tool", "plan"].includes(kind)) anchor = event.id;
     if (kind === "user") anchor = null;
   };
@@ -124,6 +142,7 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
       m = object(v.message);
     if (provider === "codex") {
       if (v.type === "turn_context" || (v.type === "event_msg" && p.type === "task_started")) {
+        if (v.type === "event_msg") running(true, line);
         const id = string(p.turn_id);
         if (id !== codexTurn) anchor = null;
         codexTurn = id;
@@ -187,7 +206,10 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
         ["task_complete", "turn_aborted", "turn_complete"].includes(string(p.type))
       ) {
         emit("lifecycle", string(p.type), line, at);
-        if (!codexTurn || !p.turn_id || p.turn_id === codexTurn) anchor = null;
+        if (!codexTurn || !p.turn_id || p.turn_id === codexTurn) {
+          anchor = null;
+          running(false, line);
+        }
       } else if (v.type === "compacted") {
         const id = string(p.compaction_response_id);
         if (id) {
@@ -248,8 +270,11 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
           }
           if (m.usage) receipt(id, usage(m.usage, provider), line);
         }
+        if (v.type === "assistant" && ["end_turn", "stop_sequence"].includes(string(m.stop_reason)))
+          running(false, line);
       } else if (v.type === "system" && ["compact_boundary", "turn_duration"].includes(string(v.subtype))) {
         emit("lifecycle", string(v.subtype), line, at);
+        if (v.subtype === "turn_duration") running(false, line);
       }
     }
   }

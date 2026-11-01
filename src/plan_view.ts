@@ -14,11 +14,11 @@ export class State {
 type Row =
   | { kind: "node"; node: Node; depth: number; counts?: roadmap.Counts; current?: boolean; returned?: boolean }
   | { kind: "more"; parent: Node; count: number }
-  | { kind: "pending"; parent: Node };
+  | { kind: "pending"; parent: Node | null; active?: boolean };
 const rowHeight = (row: Row) => (row.kind === "node" && row.node.bump ? 2 : 1);
 const currentStep = (view: roadmap.Snapshot, node: Node) => node.id === view.focus_step && node.state === "active";
 type Block = { episode: Node; heading: Extract<Row, { kind: "node" }>; children: Row[] };
-function blocks(view: roadmap.Snapshot): Block[] {
+function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
   if (view.visits.length) {
     const nodes = new Map(view.nodes.map(n => [n.id, n])),
       seenEpisodes = new Set<string>(),
@@ -53,13 +53,13 @@ function blocks(view: roadmap.Snapshot): Block[] {
       }
       const latest = i === view.visits.length - 1;
       block.heading.counts = roadmap.add(block.heading.counts!, visit.counts);
-      block.heading.current = latest && episode.id === view.focus && episode.state === "active";
+      block.heading.current = running !== false && latest && episode.id === view.focus && episode.state === "active";
       block.children.push({
         kind: "node",
         node: { ...step, bump: bumps.get(step.id) === i ? step.bump : null },
         depth: 1,
         counts: visit.counts,
-        current: latest && currentStep(view, step),
+        current: running !== false && latest && currentStep(view, step),
         returned: seenSteps.has(step.id) && !block.heading.returned,
       });
       seenSteps.add(step.id);
@@ -72,11 +72,17 @@ function blocks(view: roadmap.Snapshot): Block[] {
   return view.nodes
     .filter(n => n.kind === "episode")
     .map(episode => {
-      const heading: Block["heading"] = { kind: "node", node: episode, depth: 0 };
+      const heading: Block["heading"] = {
+        kind: "node",
+        node: episode,
+        depth: 0,
+        current: running === false ? false : undefined,
+      };
       const children: Row[] = view.nodes
         .filter(n => n.parent === episode.id)
-        .map(node => ({ kind: "node", node, depth: 1 }));
+        .map(node => ({ kind: "node", node, depth: 1, current: running === false ? false : undefined }));
       if (
+        running !== false &&
         episode.id === view.focus &&
         episode.state === "active" &&
         (!step || ["done", "abandoned", "planned"].includes(step.state))
@@ -85,8 +91,21 @@ function blocks(view: roadmap.Snapshot): Block[] {
       return { episode, heading, children };
     });
 }
-export function tail(view: roadmap.Snapshot, count: number) {
-  const groups = blocks(view);
+export function tail(view: roadmap.Snapshot, count: number, running: boolean | null = null) {
+  const groups = blocks(view, running);
+  let pending: Row | null = null;
+  if (
+    running &&
+    !groups.some(b => b.children.some(r => r.kind === "node" && (r.current ?? currentStep(view, r.node))))
+  ) {
+    const last = groups.at(-1);
+    if (last && (last.heading.current ?? (last.episode.id === view.focus && last.episode.state === "active"))) {
+      const placeholder = last.children.find(r => r.kind === "pending");
+      if (placeholder?.kind === "pending") placeholder.active = true;
+      else last.children.push({ kind: "pending", parent: last.episode, active: true });
+    } else pending = { kind: "pending", parent: null, active: true };
+  }
+  const room = Math.max(0, count - (pending ? 1 : 0));
   const all = groups.flatMap(b => [b.heading, ...b.children]);
   const pinned = all.filter(
     r =>
@@ -115,9 +134,10 @@ export function tail(view: roadmap.Snapshot, count: number) {
       }
       gap();
     }
-    if (candidate.reduce((sum, r) => sum + rowHeight(r), 0) <= count) rows = candidate;
-    if (all.slice(start).reduce((sum, r) => sum + rowHeight(r), 0) > count) break;
+    if (candidate.reduce((sum, r) => sum + rowHeight(r), 0) <= room) rows = candidate;
+    if (all.slice(start).reduce((sum, r) => sum + rowHeight(r), 0) > room) break;
   }
+  if (pending) rows.push(pending);
   return { rows, hidden: all.filter(r => r.kind === "node").length - rows.filter(r => r.kind === "node").length };
 }
 export function key(input: string): Action | null {
@@ -129,7 +149,7 @@ export function geometry(cols: number, rows: number) {
   return new Rect(Math.floor((cols - w) / 2), 1, w, h);
 }
 export const capacity = (rect: Rect) => Math.max(1, rect.h - 7);
-export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Snapshot) {
+export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Snapshot, running: boolean | null = null) {
   const line = (y: number, value: string, tone: palette.Token = "text") => {
     if (y < 0 || y >= rect.h) return;
     const style = new palette.Style({ fg: tone, bg: "surface", bold: tone === "strong" || tone === "accent" }),
@@ -143,7 +163,7 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
     line(2, " Enlarge terminal · Esc to close", "muted");
     return;
   }
-  const { rows, hidden } = tail(view, capacity(rect)),
+  const { rows, hidden } = tail(view, capacity(rect), running),
     lastRow = rows.at(-1),
     last = lastRow?.kind === "node" ? lastRow.node : lastRow?.parent,
     episode =
@@ -183,9 +203,10 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
   };
   rows.forEach((entry, i) => {
     const next = rows[i + 1],
-      last = !next || (next.kind === "node" && next.depth === 0);
+      last = !next || (next.kind === "node" && next.depth === 0) || (next.kind === "pending" && next.parent === null);
     if (entry.kind !== "node") {
-      line(y++, `    ${last ? "╰" : "├"} …${entry.kind === "more" ? ` ${entry.count} more` : ""}`, "faint");
+      if (entry.kind === "pending" && entry.active) line(y++, entry.parent ? "    ┣▶ …" : "  ▶ …", "accent");
+      else line(y++, `    ${last ? "╰" : "├"} …${entry.kind === "more" ? ` ${entry.count} more` : ""}`, "faint");
       return;
     }
     const { node, depth } = entry;

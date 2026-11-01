@@ -15,7 +15,7 @@ type Replay = {
   ablation: string;
   model: string;
   source: string;
-  checkpoints: { through: number; view: roadmap.Snapshot }[];
+  checkpoints: { through: number; view: roadmap.Snapshot; running: boolean | null }[];
   failures: string[];
 };
 const data: Replay[] = JSON.parse(document.querySelector("#data")!.textContent!);
@@ -50,13 +50,14 @@ for (const cohort of ["long", "routine", "excerpt", "probe"] as const) {
 }
 const current = () => data.find(c => c.key === session.value)!;
 const view = () => current().checkpoints[Number(slider.value)].view;
+const running = () => current().checkpoints[Number(slider.value)].running;
 const color = (name: string | null, fallback: palette.Token) =>
   name?.startsWith("#") ? name : `rgb(${palette.colors[(name ?? fallback) as palette.Token].join(",")})`;
 function render() {
   cols = Math.max(30, Math.min(narrow ? 64 : 116, Math.floor((document.querySelector("#wrap")!.clientWidth - 2) / 9)));
   rows = Number(height.value);
   const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().label, view());
+  planView.draw(out, planView.geometry(cols, rows), current().label, view(), running());
   const fragment = document.createDocumentFragment();
   for (const row of grid(out.buffered(), cols, rows)) {
     const line = document.createElement("div");
@@ -112,14 +113,14 @@ document.querySelector("#narrow")!.addEventListener("click", () => {
 });
 document.querySelector("#ansi")!.addEventListener("click", () => {
   const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().label, view());
+  planView.draw(out, planView.geometry(cols, rows), current().label, view(), running());
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([out.buffered()], { type: "text/plain" }));
   a.download = "corgi-plan.ansi";
   a.click();
   URL.revokeObjectURL(a.href);
 });
-Object.assign(window, { planReview: { view, render } });
+Object.assign(window, { planReview: { view, running, render } });
 const query = new URLSearchParams(location.search);
 if (data.some(d => d.key === query.get("replay"))) session.value = query.get("replay")!;
 if ([...height.options].some(o => o.value === query.get("rows"))) height.value = query.get("rows")!;

@@ -306,7 +306,10 @@ in time order. Returning to an earlier episode or step appends a new visit marke
 ↩ at the tail; earlier visits stay in place. Each row counts only work during that
 visit. A problem stays on the visit where it arose, even after returning. Sidebar
 branches (├, ╰, │ and the focused ┣/┃) connect each block. Two or more hidden steps get a “… N more”
-row; an unknown current step gets “…”. Tokens, tool-call counts and cached input
+row. The provider lifecycle controls whether play markers are shown. While the
+agent is working without a known active step, a green “▶ …” stays at the tail,
+under the current episode or on its own if that episode is finished. It carries
+no attributed usage and does not reopen completed work. Tokens, tool-call counts and cached input
 appear in columns beside the work and in the total row. Missing usage fields
 stay blank. Stored focus follows the latest attributed work and survives pauses
 and reloads, keeping the episode in the tail after completion. Play icons only
