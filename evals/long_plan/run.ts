@@ -7,6 +7,9 @@ import * as history from "./history";
 import * as plan from "./plan";
 import * as scoring from "./score";
 import { Signals } from "./signals";
+import * as compact from "../../src/activity/plan_protocol";
+import { Audit } from "./usage_audit";
+import { Context } from "../../src/activity/plan_context";
 import { Conversation } from "./cached";
 import type { Provider } from "./history";
 import type { Check } from "./score";
@@ -48,10 +51,13 @@ async function main() {
       const i = args.indexOf(name);
       return i < 0 ? fallback : args[i + 1];
     };
-  const manifest = option("--manifest");
+  const manifest = option("--manifest"),
+    ops = !args.includes("--flat") && !args.includes("--legacy") && !args.includes("--cached"),
+    plain = args.includes("--plain"),
+    reuse = ops && !args.includes("--stateless");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --cached] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--out DIR] [--resume]",
     );
   const selection = option("--case"),
     model = option("--model", "claude:claude-haiku-5-5"),
@@ -71,6 +77,7 @@ async function main() {
   const selected = cases.filter(c => !selection || c.id === selection);
   if (!selected.length) throw Error("NoCases");
   const pool = new Pool({ config: { provider, model: modelId, timeout_ms: 60000 } });
+  const audit = provider === "claude" ? new Audit() : null;
   const stopping = { value: false };
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => (stopping.value = true));
   const sourceHashes = Object.fromEntries(
@@ -91,17 +98,20 @@ async function main() {
       "../../src/activity/plan.ts",
       "../../src/activity/roadmap.ts",
       "cached.ts",
+      "../../src/activity/plan_protocol.ts",
+      "../../src/activity/plan_context.ts",
+      "usage_audit.ts",
     ].map(file => [file, history.hash(fs.readFileSync(path.join(import.meta.dir, file), "utf8"))]),
   );
   const report: {
     model: string;
     baseline: boolean;
-    transport: "stateless" | "cached-deltas";
+    transport: "stateless" | "cached-deltas" | "compact" | "compact-text" | "compact-deltas" | "compact-text-deltas";
     ablation: string;
     batch: number;
     manifest_hash: string;
     instructions: string;
-    schema: string;
+    schema: string | null;
     source_hashes: typeof sourceHashes;
     resume_source_hashes?: typeof sourceHashes;
     cases: unknown[];
@@ -109,12 +119,22 @@ async function main() {
   } = {
     model,
     baseline,
-    transport: baseline || !cachedConversation ? "stateless" : "cached-deltas",
+    transport: reuse
+      ? plain
+        ? "compact-text-deltas"
+        : "compact-deltas"
+      : ops
+        ? plain
+          ? "compact-text"
+          : "compact"
+        : baseline || !cachedConversation
+          ? "stateless"
+          : "cached-deltas",
     ablation,
     batch: batchSize,
     manifest_hash: history.hash(raw),
-    instructions: baseline ? flat.instructions : plan.instructions,
-    schema: baseline ? flat.schema : plan.schema,
+    instructions: baseline ? flat.instructions : ops ? compact.instructions : plan.instructions,
+    schema: baseline ? flat.schema : ops ? (plain ? null : compact.schema) : plan.schema,
     source_hashes: sourceHashes,
     cases: [],
     failures: 0,
@@ -179,7 +199,8 @@ async function main() {
         phaseId = "",
         phaseIndex = 0;
       const flatContext = new flat.Context();
-      const conversation = new Conversation();
+      const context = new Context(),
+        conversation = new Conversation();
       const cached: { state?: plan.State; through: number; raw?: string; error?: string }[] =
         resume && fs.existsSync(callsPath) ? JSON.parse(fs.readFileSync(callsPath, "utf8")) : [];
       const snapshots: plan.State[] = cached.flatMap(call => (call.state ? [call.state] : [])),
@@ -241,35 +262,61 @@ async function main() {
         try {
           const request = baseline
             ? { instructions: flat.instructions, schema: flat.schema, content: JSON.stringify(content) }
-            : !cachedConversation
-              ? { instructions: plan.instructions, schema: plan.schema, content: JSON.stringify(content) }
-              : conversation.prepare(road);
-          if (content !== input) request.content = request.fresh_content = JSON.stringify(content);
+            : reuse
+              ? context.prepare(road)
+              : ops
+                ? {
+                    instructions: compact.instructions,
+                    schema: plain ? null : compact.schema,
+                    content: compact.content(road),
+                  }
+                : !cachedConversation
+                  ? { instructions: plan.instructions, schema: plan.schema, content: JSON.stringify(content) }
+                  : conversation.prepare(road);
+          if (plain && ops) request.schema = null;
+          if (content !== input)
+            request.content = request.fresh_content = JSON.stringify({
+              ...content,
+              ...(ops ? JSON.parse(compact.content(road)) : {}),
+            });
           let response = await pool.infer(request, stopping);
           rawResponse = response.text();
-          attempts.push({ raw: rawResponse, usage: response.usage });
+          attempts.push({
+            raw: rawResponse,
+            usage: response.usage,
+            audit: audit?.take(response.usage),
+            request,
+            fresh: response.fresh,
+          });
           if (!baseline) {
             try {
-              plan.apply(state, rawResponse, batch);
+              ops ? compact.apply(road, rawResponse) : plan.apply(state, rawResponse, batch);
             } catch (error) {
               const invalid = error instanceof Error ? error.message : String(error);
               errors.push(`Invalid first attempt: ${invalid}`);
               conversation.invalidate();
+              context.invalidate();
               const corrected = JSON.stringify({
-                ...input,
+                ...(ops ? JSON.parse(compact.content(road)) : input),
                 correction: `${correction(state, rawResponse, invalid)} Assign ONLY events ${events[0].id} through ${events.at(-1)!.id}.`,
                 rejected: rawResponse,
               });
               response = await pool.infer(
                 {
-                  ...(cachedConversation ? conversation.prepare(road) : request),
+                  ...(reuse ? context.prepare(road) : cachedConversation ? conversation.prepare(road) : request),
+                  ...(plain && ops ? { schema: null } : {}),
                   content: corrected,
                   fresh_content: corrected,
                 },
                 stopping,
               );
               rawResponse = response.text();
-              attempts.push({ raw: rawResponse, usage: response.usage, correction: invalid });
+              attempts.push({
+                raw: rawResponse,
+                usage: response.usage,
+                audit: audit?.take(response.usage),
+                correction: invalid,
+              });
             }
           }
           if (baseline) {
@@ -321,9 +368,10 @@ async function main() {
             });
             state.through = events.at(-1)!.id;
           } else {
-            const applied = plan.apply(state, rawResponse, batch);
+            const applied = ops ? compact.apply(road, rawResponse) : plan.apply(state, rawResponse, batch);
             state = applied.state;
             if (cachedConversation) conversation.accept(road, applied.state);
+            if (reuse) context.accept(road, applied.state);
             repairs = applied.repairs;
           }
           const snapshot = structuredClone(state),
@@ -379,6 +427,7 @@ async function main() {
     }
   } finally {
     pool.close();
+    audit?.close();
   }
   if (!args.includes("--prepare")) {
     console.log(`${report.failures} failures; ${dir}/report.json`);

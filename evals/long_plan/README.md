@@ -282,55 +282,106 @@ positions do not imply continuous activity.
 
 ### Haiku inference efficiency
 
-The production updater keeps a self-contained tree and all bounded evidence in
-every request. Its response schema is now stable across event ranges, allowing
-the provider to reuse the prompt cache. The reducer still rejects out-of-range
-evidence and incomplete or overlapping event assignments. Existing nodes accept
-field patches (`id`, evidence, changed fields); new nodes still require a
-complete valid identity and description. Patches are expanded to full nodes
-before entering pending results or saved state, so stored formats do not change.
+The plan updater uses compact operations: `+` creates a node, `=` changes its
+state, `~` changes fields, `@` assigns an event range, `!` records a setback and
+`v` resolves it. It derives hierarchy, preserves failure evidence, and expands
+operations to the existing canonical patch before validation and persistence.
+A verification setback marks its attempt failed; resolving the setback cannot
+rewrite that attempt as successful.
 
-The matched live-input comparison uses the same Haiku model and 52 observation
-windows from the zstd, website, installer and handoff conversations. These are
-production-sized inputs, not the fuller transcript excerpts in the browser eval.
+A bounded inference conversation receives accepted changes instead of repeating
+the full tree. Goals, episodes and unresolved problems stay explicit on every
+update. It reseeds from the full canonical state after 16 updates, rejection,
+state divergence, eviction or restart. The last accepted foreground step is an
+explicit input. Pending handoff requests gain an optional focus hint; older
+requests fall back to their recorded spans or unknown focus. The application
+still supplies the same observations on the same cadence. No additional evidence
+is truncated.
 
-| Inference tokens | Previous plan updater | Optimized updater | Change |
+The response schema is stable and requires a nonempty operation list. Claude
+submits its object directly through its structured-output formatter. Earlier
+trials printed JSON first, causing the CLI to ask the model to submit the same
+answer again. The receipt audit counts those extra model calls too.
+
+The matched benchmark replays 52 production-sized observation windows from four
+real conversations: zstd, website, installer and handoff. It is a controlled
+comparison, not a simulation of production hook timing. Main uses its production
+flat summarizer and persistent conversation; the plan version uses the bounded
+roadmap observations. Cache availability and model sampling vary between runs.
+
+The final comparison (`compact-comparison.json`) is:
+
+| Inference tokens | Main, rerun | Previous plan | Compact cached plan |
 | --- | ---: | ---: | ---: |
-| Input, excluding cache reads | 274,980 | 128,284 | −53.3% |
-| Cached input | 125,311 | 251,732 | +100.9% |
-| Output | 38,679 | 39,229 | +1.4% |
-| Total input plus output | 438,970 | 419,245 | −4.5% |
+| Input excluding cache reads | 26,419 | 128,284 | 61,808 |
+| Cached input | 340,979 | 251,732 | 663,463 |
+| Output, including thinking | 8,740 | 39,229 | 18,845 |
+| Thinking, already in output | 4,648 | Not recorded separately | 12,421 |
+| Total input plus output | 376,138 | 419,245 | 744,116 |
 
-Cached input is already part of total input. The gain is primarily cache reuse,
-not smaller generated answers. This holds update cadence fixed and is one
-measured run; cache availability and sampling vary. No evidence was truncated
-further and no updates were deferred to obtain these savings. Results remain
-under `evals/results/long-plan/optimization-comparison.json` and the
-`opt-v2-live-stateless` directory.
+Against the previous plan updater, uncached input fell 51.8% and output fell
+52.0%. The selected version remains above main: 2.34 times its uncached input
+and 2.16 times its output. Conversation reuse increases cached reads, so the raw
+token total rises 77.5% versus the previous plan. This is a reduction in
+uncached processing and generation, not in all tokens. No dollar or subscription
+quota savings are inferred from unweighted totals.
 
-The selected candidate passes 115/115 reviewed checks across four real
-conversations and 17 synthetic cases, with no rejected patches. This includes
-preserving failures after recovery, TODO intent, episode boundaries, foreground
-focus, goal constraints and usage conservation. `efficiency_checks.json` retains
-the real-conversation rubric, adding a check that implementation is not assigned
-to an old tracing step. Two literal matchers now accept “holdout” as well as
-“held-out”, and workspace-away restoration as a description of the handoff loss;
-the same rubric is applied to both candidates and baseline.
+A compact self-contained control on the same 52 windows consumed 121,661
+uncached input and 46,662 output tokens, including 38,461 thinking tokens.
+It repeatedly reconstructed the plan. The accepted-state conversation is doing
+most of the useful work; shortening JSON alone was insufficient. The final
+cached run required no extra provider formatting calls.
 
-An experimental conversation cache (`--cached`) reuses four inference turns and
-sends accepted tree updates between complete snapshots. It cut uncached input
-67.3% and output 32.2%, but increased total tokens 17.3% and regressed the holdout
-constraint and verification-episode checks. It stays in the eval harness and is
-not used by Corgi. The earlier failed candidates and exact model outputs remain
-in `opt-v1-*` and `opt-v2-*` result directories.
+The selected prompt passes 115/115 reviewed checks: 32 across four real
+conversations, 74 across sixteen synthetic cases, and nine on the six-prefix
+background-focus holdout (`--batch 4`). No patches were rejected. All 99 saved
+checkpoints were revalidated against the final decoder with identical states.
+The real replay is `opt-v13-real` (review.json); synthetic and focus runs are
+`opt-v13-synthetic` and `opt-v13-focus`. Final matched usage is `opt-v14-live`;
+main's audited replay is `opt-v6-main-audited`. These are finite regression
+checks, not a guarantee across every future conversation.
+
+The usage audit records final Claude `result.usage` receipts and checks them
+against Corgi's normalized totals. Input includes ordinary input, cache writes
+and cache reads. Uncached input includes cache writes. Output **already includes
+thinking**; `output_tokens_details.thinking_tokens` is a subtotal, never an extra
+charge. Repeated partial assistant reports, cumulative `modelUsage`, and the
+per-iteration breakdown are not added again. The audit fails if normalized
+counts differ or a final receipt is missing; unavailable thinking counts remain
+unknown. This is checked against both raw live receipts and the provider adapter
+regression test. See [Claude's thinking documentation](https://platform.claude.com/docs/en/build-with-claude/thinking).
+
+The previous JSON updater's matched result is retained in
+`optimization-comparison.json`. The compact trials, including rejected formats
+and semantic failures, remain under `evals/results/long-plan/opt-v3-*` through
+`opt-v14-*`. Private conversations are not committed.
+
+The real-conversation rubric still checks foreground work, goals, constraints,
+episode boundaries, subtitles and failed attempts. After inspecting event 52
+in the zstd transcript, its topic matcher also accepts “record” as
+a synonym of capturing independent training sessions. This matcher is applied
+to both baseline and candidate; it does not remove any substantive expectation.
+The negative grep check now looks for a setback whose failure evidence starts at the read command/result
+(events 428-429), rather than rejecting a genuine earlier rebase conflict on
+the same reused step (failure at 399, recovery at 410/412). A unit test verifies
+that it still rejects an invented failure at the grep result. Original reports
+remain intact; review.json records these explicitly reviewed scorer changes.
 
 ```sh
-# Compare against frozen *.plan.json production requests with recorded usage.
-bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY
-# Experimental alternative; the default run.ts path matches production.
-bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY --cached
+# Compare the production compact updater with frozen production-sized windows.
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY
+# Replay main's flat summarizer on its corresponding frozen observations.
+bun evals/long_plan/main_efficiency.ts BASELINE_DIRECTORY MAIN_RESULTS_DIRECTORY
+# Experimental controls; default run.ts matches production.
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --stateless
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --legacy
 bun evals/long_plan/report.ts evals/long_plan/efficiency_checks.json RUN_DIRECTORY
 ```
+
+`--cached` retains the rejected legacy delta-conversation experiment, and
+`--plain` disables the structured-output formatter for compact-format ablations.
+The plain-output trial reduced wrapper tokens but allowed overlong descriptions;
+the selected contract validates lengths with its schema and in the reducer.
 
 To capture a replay with terminal font shaping and box drawing:
 

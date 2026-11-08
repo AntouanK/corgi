@@ -502,6 +502,28 @@ test("scorer requires both anchors; two unassigned events never pass same episod
   expect(results.find(r => r.name === "same")?.pass).toBe(false);
 });
 
+test("an ordinary result may share a step with an earlier real setback", () => {
+  const data: history.History = {
+    source: "test",
+    provider: "codex",
+    sha256: "test",
+    warnings: [],
+    events,
+    receipts: [],
+  };
+  const current = state();
+  current.nodes[2].bump = { kind: "conflict", state: "resolved", detail: "Earlier import conflict", evidence: [1, 2] };
+  const check: score.Check = { name: "normal output", kind: "no_bump_started", from: 2, to: 2 };
+  expect(score.score(data, [current], [check]).find(c => c.name === check.name)?.pass).toBe(true);
+  current.nodes[2].bump = {
+    kind: "verification",
+    state: "open",
+    detail: "Invented failure from empty grep",
+    evidence: [2],
+  };
+  expect(score.score(data, [current], [check]).find(c => c.name === check.name)?.pass).toBe(false);
+});
+
 test("batching cuts before user steering and does not see the next prefix", () => {
   const more = [...events, { ...events[0], id: 3, line: 3, turn: 2 }];
   expect(plan.batches(more, 24).map(b => b.map(e => e.id))).toEqual([[1, 2], [3]]);

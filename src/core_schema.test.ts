@@ -277,7 +277,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(6);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "90cd25a973a52b8c6d2c6411ab7a7654066a85c369c831e9f3767cc88e9a01e5",
+    "65504b6fee9af4f1ca28c7ed7d334ab6072de7a9b6584532610398d540cf5308",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();

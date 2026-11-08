@@ -4,6 +4,7 @@ import type { Input } from "../../src/activity/roadmap";
 import { Conversation } from "./cached";
 import { Backend } from "../../src/summary_backend";
 import { Response, type Request } from "../../src/inference/harness";
+import * as protocol from "../../src/activity/plan_protocol";
 
 const event = (id: number): plan.Event => ({ id, line: id, at: "", turn: 1, kind: "tool", text: "Run unit tests" });
 const nodes: plan.Node[] = [
@@ -144,9 +145,9 @@ test("the summary backend uses a stable contract and persists full validated nod
       response = new Response();
     response.set(
       JSON.stringify({
-        nodes: [{ id: "s", state: "done", evidence: [content.assign_through] }],
-        spans: [
-          { from: content.assign_from, to: content.assign_through, node: invalid ? "missing" : "s", focus: true },
+        ops: [
+          ["=", "s", "d", content.range[1]],
+          ["@", content.range[1], invalid ? "missing" : "s", 1],
         ],
       }),
     );
@@ -169,11 +170,11 @@ test("the summary backend uses a stable contract and persists full validated nod
     invalid = true;
     expect((await backend.infer(flat, "one", "activity:1", source, false, road)).decision).toBeNull();
     expect(requests[1].schema).toBe(requests[0].schema);
-    expect(requests[1].conversation).toBeUndefined();
+    expect(requests[1].conversation).toBe(requests[0].conversation);
     invalid = false;
     expect((await backend.infer(flat, "one", "activity:1", source, false, road)).patch).toBeTruthy();
-    expect(requests[2].conversation).toBeUndefined();
-    expect(JSON.parse(requests[2].content).tree).toEqual(road.state.nodes);
+    expect(requests[2].conversation).not.toBe(requests[1].conversation);
+    expect(JSON.parse(requests[2].content).tree).toEqual(road.state.nodes.map(protocol.node));
   } finally {
     backend.close();
   }

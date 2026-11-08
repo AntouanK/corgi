@@ -341,5 +341,7 @@ test("background polls and late results update the original visit without steali
   const restored = roadmap.Roadmap.restore(JSON.parse(JSON.stringify(road)), true);
   expect(restored.focus_step).toBe("other");
   expect(restored.visits).toEqual(road.visits);
+  restored.observe("t", "working", "New foreground observation", new List(), usage(400n), 5);
+  expect(restored.request()!.focus).toBe("other");
   expect(road.visits.reduce((sum, v) => roadmap.add(sum, v.counts), roadmap.zero())).toEqual(road.counts.g);
 });

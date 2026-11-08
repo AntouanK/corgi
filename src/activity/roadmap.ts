@@ -5,7 +5,7 @@ import type { View } from "../usage/live";
 
 export type Counts = { input: string; cached: string; output: string; tools?: string };
 export type Visit = { step: string; from: number; to: number; counts: Counts };
-export type Input = { state: plan.State; events: plan.Event[]; support: plan.Event[] };
+export type Input = { state: plan.State; events: plan.Event[]; support: plan.Event[]; focus?: string | null };
 export type Snapshot = {
   nodes: plan.Node[];
   visits: Visit[];
@@ -256,7 +256,12 @@ export class Roadmap {
   }
   request(): Input | null {
     if (!this.pending.length || this.limited) return null;
-    return structuredClone({ state: this.state, events: this.pending.slice(0, 8), support: this.support });
+    return structuredClone({
+      state: this.state,
+      events: this.pending.slice(0, 8),
+      support: this.support,
+      focus: this.focus_step,
+    });
   }
   apply(input: Input, raw: string) {
     if (input.state.through !== this.state.through) return false;

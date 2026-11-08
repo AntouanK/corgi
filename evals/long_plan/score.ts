@@ -17,6 +17,7 @@ export type Check =
       at?: number;
     }
   | { name: string; kind: "bump_count"; count: number }
+  | { name: string; kind: "no_bump_started"; from: number; to: number }
   | { name: string; kind: "same_episode" | "different_episode" | "same_goal"; a: number; b: number }
   | {
       name: string;
@@ -114,6 +115,14 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
         const count = state.nodes.filter(n => n.bump).length;
         pass = count === check.count;
         detail = `${count} bumps`;
+        break;
+      }
+      case "no_bump_started": {
+        const invented = state.nodes.filter(
+          n => n.bump && n.bump.evidence[0] >= check.from && n.bump.evidence[0] <= check.to,
+        );
+        pass = invented.length === 0;
+        detail = invented.map(n => n.bump!.detail).join("; ") || "no setback starts in this evidence range";
         break;
       }
       case "same_episode":

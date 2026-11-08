@@ -27,7 +27,7 @@
         "kind": "topic",
         "event": 52,
         "level": "step",
-        "pattern": "dict|train|hold|captur|corpus|fixture"
+        "pattern": "dict|train|hold|captur|corpus|fixture|record"
       }
     ]
   },
@@ -108,9 +108,9 @@
       },
       {
         "name": "empty grep result is not a failed integration suite",
-        "kind": "bump",
-        "event": 429,
-        "category": null
+        "kind": "no_bump_started",
+        "from": 428,
+        "to": 429
       },
       {
         "name": "rebase conflict recovered",

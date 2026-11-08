@@ -353,6 +353,8 @@ $.summaries?.slots[].slot.request.road?.state.nodes[].bump?.state: enum open res
 $.summaries?.slots[].slot.request.road?.state.nodes[].bump?.detail: string
 $.summaries?.slots[].slot.request.road?.state.nodes[].bump?.evidence[]: usize
 $.summaries?.slots[].slot.request.road?.state.through: usize
+$.summaries?.slots[].slot.request.road?.focus: optional
+$.summaries?.slots[].slot.request.road?.focus?: string
 $.summaries?.slots[].slot.request.road?.events[].id: usize
 $.summaries?.slots[].slot.request.road?.events[].line: usize
 $.summaries?.slots[].slot.request.road?.events[].at: string
@@ -380,6 +382,8 @@ $.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.state: enum 
 $.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.detail: string
 $.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.evidence[]: usize
 $.summaries?.slots[].slot.result?.request.road?.state.through: usize
+$.summaries?.slots[].slot.result?.request.road?.focus: optional
+$.summaries?.slots[].slot.result?.request.road?.focus?: string
 $.summaries?.slots[].slot.result?.request.road?.events[].id: usize
 $.summaries?.slots[].slot.result?.request.road?.events[].line: usize
 $.summaries?.slots[].slot.result?.request.road?.events[].at: string

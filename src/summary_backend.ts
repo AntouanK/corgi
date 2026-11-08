@@ -3,8 +3,9 @@ import { model } from "./inference/setup";
 import type { Provider } from "./providers";
 import { getLogger } from "./log";
 import * as contract from "./activity/prompt";
-import * as plan from "./activity/plan";
-import * as roadmap from "./activity/roadmap";
+import type { Input as RoadInput } from "./activity/roadmap";
+import * as plan_protocol from "./activity/plan_protocol";
+import { Context } from "./activity/plan_context";
 import { Text } from "./agents";
 const log = getLogger("activity_summary");
 export { contract };
@@ -29,8 +30,9 @@ export function outcome(request: bigint, discard: Discard | null) {
 export class Backend {
   pool = new Pool();
   next_request = 0n;
+  private plans = new Map<string, Context>();
   use(provider: Provider | null, selected = model(provider), account = "") {
-    this.pool.close();
+    this.close();
     this.pool.started = false;
     this.pool.config.disabled = provider === null;
     if (provider) this.pool.config.provider = provider;
@@ -40,6 +42,14 @@ export class Backend {
   }
   close() {
     this.pool.close();
+    this.plans.clear();
+  }
+  private planContext(key: string) {
+    const context = this.plans.get(key) ?? new Context();
+    this.plans.delete(key);
+    this.plans.set(key, context);
+    if (this.plans.size > 4) this.plans.delete(this.plans.keys().next().value!);
+    return context;
   }
   async infer(
     input: Input,
@@ -47,15 +57,22 @@ export class Backend {
     conversation: string,
     source: Source,
     stopping: any = false,
-    road: roadmap.Input | null = null,
+    road: RoadInput | null = null,
   ) {
     const request = ++this.next_request,
       context = { pid: process.pid, request, source, turn, conversation };
-    // Keep the schema cacheable; plan.apply enforces this batch's event bounds.
-    const content = road ? roadmap.content(road) : contract.content({ ...input, history: null }),
-      fresh = road ? null : input.history?.length ? contract.content(input) : null,
-      instructions = road ? plan.instructions : contract.instructions,
-      schema = road ? plan.schema : contract.schema;
+    const roadContext = road ? this.planContext(conversation) : null,
+      inference =
+        road && roadContext
+          ? roadContext.prepare(road)
+          : {
+              instructions: contract.instructions,
+              schema: contract.schema,
+              content: contract.content({ ...input, history: null }),
+              fresh_content: input.history?.length ? contract.content(input) : null,
+              conversation,
+            };
+    const { content, fresh_content: fresh, instructions, schema } = inference;
     log.info("Summary requested", {
       event: "request",
       context,
@@ -68,17 +85,9 @@ export class Backend {
     });
     let response;
     try {
-      response = await this.pool.infer(
-        {
-          instructions,
-          schema,
-          content,
-          fresh_content: fresh,
-          conversation: road ? undefined : conversation,
-        },
-        stopping,
-      );
+      response = await this.pool.infer(inference, stopping);
     } catch (error) {
+      roadContext?.invalidate();
       log.info("Summary inference failed", {
         event: "result",
         context,
@@ -92,7 +101,8 @@ export class Backend {
       let patch: string | null = null;
       let decision: { action: contract.Action; label: Text | null };
       if (road) {
-        const applied = plan.apply(road.state, response.text(), road.events);
+        const applied = plan_protocol.apply(road, response.text());
+        roadContext!.accept(road, applied.state);
         patch = JSON.stringify(applied.patch);
         const id = applied.patch.spans.at(-1)?.node,
           current = applied.state.nodes.find(n => n.id === id);
@@ -110,6 +120,7 @@ export class Backend {
       });
       return { request, decision, patch };
     } catch (error) {
+      roadContext?.invalidate();
       log.info("Summary rejected", {
         event: "result",
         context,

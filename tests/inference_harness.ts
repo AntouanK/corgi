@@ -3,6 +3,7 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
+const plan_nodes = new Set<string>();
 const emit = (value: any) => console.log(JSON.stringify(value));
 const codex = process.argv.includes("app-server");
 const log = process.env.CORGI_INFERENCE_TEST_LOG;
@@ -118,10 +119,12 @@ for await (const line of createInterface({ input: process.stdin })) {
           ? { action: control.action ?? (label === null ? "none" : "new"), label }
           : { label };
     if (schema && ("label" in control || "name" in control)) result = JSON.stringify(structured);
-    if (control.roadmap && "nodes" in properties) {
+    if (control.roadmap && ("nodes" in properties || "ops" in properties)) {
       const input = JSON.parse(content),
-        from = input.assign_from,
-        to = input.assign_through;
+        from = input.range?.[0] ?? input.assign_from,
+        to = input.range?.[1] ?? input.assign_through;
+      if (input.tree) plan_nodes.clear();
+      for (const n of input.tree ?? input.tree_updates ?? []) plan_nodes.add(Array.isArray(n) ? n[0] : n.id);
       const node = (id: string, parent: string | null, kind: string, title: string) => ({
         id,
         parent,
@@ -136,22 +139,30 @@ for await (const line of createInterface({ input: process.stdin })) {
             : null,
       });
       const step = control.plan_step === "other" ? "s2" : "s";
-      const additions = input.tree.length
+      const additions = plan_nodes.size
         ? []
         : [
             node("g", null, "goal", "Restore terminal focus"),
             node("e", "g", "episode", "Repair focus transitions"),
             node("s", "e", "step", "Trace focus changes"),
           ];
-      if (step === "s2" && !input.tree.some((n: { id: string }) => n.id === "s2"))
+      if (step === "s2" && !plan_nodes.has("s2"))
         additions.push(
           node("e2", "g", "episode", "Verify token receipts"),
           node("s2", "e2", "step", "Check receipt totals"),
         );
-      result = JSON.stringify({
-        nodes: additions,
-        spans: [{ from, to, node: step }],
-      });
+      for (const n of additions) plan_nodes.add(n.id);
+      result = JSON.stringify(
+        "ops" in properties
+          ? {
+              ops: [
+                ...additions.map(n => ["+", n.id, n.parent, n.title, n.subtitle, n.state, to]),
+                ...additions.filter(n => n.bump).map(n => ["!", n.id, n.bump!.kind, n.bump!.detail, to]),
+                ["@", to, step, 1],
+              ],
+            }
+          : { nodes: additions, spans: [{ from, to, node: step }] },
+      );
     }
     if ("raw" in control) result = control.raw;
     if (content === "oversize") result = "x".repeat(9000);
