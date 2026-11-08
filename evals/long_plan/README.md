@@ -534,6 +534,180 @@ Earlier trials and source snapshots are retained there. The raw command programs
 canonical snapshots, source hashes, accepted corrections and final usage receipts
 are preserved. Pricing and thinking accounting follow the rules below.
 
+#### Explicit ownership experiment
+
+`--owner reviewed` tests filesystem commands with explicit event ownership. It
+is eval-only. The seven operators are `mkdir`, `set`, `cd`, `mv`, `error`,
+`set_owner`, and `set_focus`. The application still uses the no-citation line
+format when its long-plan feature is enabled.
+
+```text
+BEGIN_PLAN
+set_owner 1..19 /s1
+set_focus 2 /s1
+set /s1 state done
+```
+
+This assigns transcript events 1 through 19, inclusive, to the existing step
+`s1` for token and tool accounting. It does not move visible tree nodes. Event 2
+must be actual foreground activity owned by `s1`; it selects that step as focus.
+An older step receiving a delayed tool result can receive ownership without
+stealing focus. Status and focus are separate: `active` means unfinished work,
+not necessarily the current foreground activity. `set /s1 done` remains valid.
+
+Ownership ranges must cover exactly the new batch, without gaps or conflicting
+overlaps. A single event can be `set_owner 7 /s1`. `none` leaves no-work events
+unassigned. Identical assignments are idempotent; other conflicting coverage is
+rejected atomically. Commands can appear out of range order; the reducer sorts
+them before validation. Focus references must belong to the selected owner.
+Passive result/lifecycle focus requests are ignored and recorded as repairs.
+The existing path, globally unique ID, failed-history and draft-only `mv` rules
+remain in force. Neither protocol executes shell commands.
+
+Three prompt variants share this parser and the same inputs:
+
+- `syntax`: explicit ownership/focus with the full existing semantic policy.
+- `reviewed`: also reviews failures, scope, TODO evidence and concrete labels,
+  with complete worked examples and counterexamples.
+- `lean`: short semantic policy with the same complete worked examples.
+
+The complete recovery, goal-switch and planning examples are executable test
+fixtures: tests run the exact strings embedded in the prompt. Their subjects
+and IDs differ from the evaluated conversations. Uppercase arguments now
+distinguish placeholders from lowercase keywords. The first trials exposed an
+ambiguity in `set PATH state`: models wrote `set PATH state done`, while the
+parser expected `set PATH done`. Explicit `state` is now the recommended field
+spelling in this experiment; both forms are accepted. Those incomplete first
+trials are retained under `owner-*` and excluded from equal-workload comparisons.
+The frozen revised trials are `owner2-*`.
+
+The previous filesystem regressions were specific:
+
+- An unresolved retry defect followed by a README request stayed under the old
+  goal. That particular request does not specify the README's topic, so its
+  expected separation is debatable. Keep its existing check, and add a clearly
+  unrelated footer-font request plus a related queue-workaround documentation
+  counterexample. These are targeted development probes, not blind holdouts.
+- An animation episode lost its concrete component names in a label like
+  "extras". The reviewed prompt asks for component nouns to survive edits.
+- A TODO-only holdout became active without execution. The worked planning
+  example leaves every intended task and ancestor planned, with owner `none`.
+- The website replay folds a failed Pillow conversion, successful ffmpeg fallback
+  and later failing tests into one broad verification step. The transient
+  environment error disappears. This also affected the previous no-cite lines;
+  it is an existing weakness, not a new ownership-format regression. Two checks
+  measure this one missed incident. The revised prompt handles the analogous
+  SQL migration probe but still misses this longer historical batch.
+
+First complete run, fixed 99 checkpoints / 53 semantic checks. All variants
+also pass all 63 structural checks, including token conservation. No updates
+were lost; rejected attempts shown here succeeded on the one permitted retry.
+
+| Format/prompt | Semantic checks | Rejected attempts | Uncached input | Cached input | Output, including thinking | API-equivalent cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Previous no-cite lines, run 1 | 51/53 | 2 | 323,536 | 2,536,043 | 69,633 | $0.12486 |
+| Previous filesystem v7, run 1 | 49/53 | 1 | 309,046 | 2,621,652 | 64,548 | $0.12028 |
+| Explicit ownership, syntax | 49/53 | 2 | 327,426 | 2,000,212 | 72,683 | $0.12181 |
+| Explicit ownership, reviewed | 51/53 | 0 | 347,140 | 2,103,511 | 81,376 | $0.13113 |
+| Explicit ownership, lean | 45/53 | 4 | 328,926 | 2,426,987 | 59,180 | $0.11962 |
+
+The short policy loses substantive report attribution, TODO states and episode
+boundaries. Keep the detailed policy: lower output alone is not a quality win.
+These checks are regression assertions, not a comprehensive judgment of prose
+quality, and one run cannot establish a causal effect or stable success rate.
+
+The repeated reviewed run passed 48/53 semantic checks. Both runs retained the
+scope/animation-label checks that had regressed with filesystem v7, but the
+repeat lost the zstd data-leakage constraint, folded the handoff rebase into the
+diagnosis episode, and briefly switched focus to a background poll. The model
+explicitly emitted `set_focus` for that poll despite the instruction to keep
+focus unchanged; the parser cannot infer foreground intent from a generic tool
+event. Do not interpret the first run's improvement as a reliable quality gain.
+
+| Two complete runs / 198 updates | Previous no-cite lines | Filesystem v7 | Ownership, reviewed |
+| --- | ---: | ---: | ---: |
+| Semantic checks | 102/106 | 99/106 | 99/106 |
+| Structural checks | 126/126 | 126/126 | 126/126 |
+| Rejected attempts, successfully corrected | 3 | 6 | 1 |
+| Updates lost after correction | 0 | 0 | 0 |
+| Uncached input, including writes | 642,375 | 623,848 | 658,655 |
+| Cached input | 4,987,090 | 5,295,499 | 4,300,075 |
+| Output, including thinking | 143,743 | 131,239 | 149,353 |
+| Thinking subset | 124,892 | 109,872 | 119,124 |
+| API-equivalent cost | $0.25018 | $0.24330 | $0.24937 |
+
+On the separate, matching production windows, the means of two runs are:
+
+| Mean per 52 updates | Previous no-cite lines | Filesystem v7 | Ownership, reviewed |
+| --- | ---: | ---: | ---: |
+| Uncached input, including writes | 53,687 | 52,485 | 56,005 |
+| Cached input | 575,250 | 618,833 | 675,381 |
+| Output, including thinking | 15,480 | 15,288 | 18,365 |
+| Thinking subset | 12,677 | 11,905 | 14,247 |
+| API-equivalent cost | $0.02422 | $0.02432 | $0.02713 |
+
+Ownership completed all 104 production updates with no rejected attempts.
+Thinking is 77.6% of its output. Its cost is 11.5% above filesystem v7 and 12.0%
+above no-cite lines. The syntax-only variant cost $0.02812 for one 52-window run,
+including two rejected attempts. This is a clearer ownership interface with
+fewer rejected programs, **not a demonstrated cost or semantic-quality win**.
+It remains eval-only.
+
+`owner_probe.json` adds paired related/unrelated outcomes and a transient
+failure/recovery case. The last case contains both a successful tool-discovery
+probe with a nonzero exit code and a genuine failed migration, followed by a
+separate integrity failure. It checks that the discovery probe is not invented
+as a third error, and that resolving the migration does not erase its failed
+attempt or resolve the unrelated integrity error.
+
+At batch size 24, reviewed examples passed 24/24 then 22/24 on these probes; the
+repeat omitted the initial queue-test error, failing two checks for that one
+incident. Syntax-only and lean each passed 21/24; filesystem v7 passed 23/24.
+The pre-existing `line_holdout.json` passed 30/30 over fourteen updates after one
+path correction, versus v7's 28/30. Cancellation/recovery passed 11/11 over six
+updates with no correction. A separate smaller-batch stress run of the line
+holdout also passed 30/30; its 35 updates are not used in the fourteen-update
+comparison. These samples do not establish a general reliability rate.
+
+Actual output from the reviewed migration probe, checkpoint 10, includes:
+
+```text
+set /g1/e1/s1 failed
+set /g1/e1/s1 subtitle Python migration stopped: psycopg module missing before any SQL ran
+error /g1/e1/s1 environment Python migration could not import psycopg; migration never started
+mkdir /g1/e1/s2 active Apply migration with psql
+set /g1/e1/s2 subtitle Retry through the installed psql client after the Python driver failed
+set_owner 3 /g1/e1/s1
+set_owner 4..7 /g1/e1/s2
+set_focus 4 /g1/e1/s2
+set /g1/e1/s2 done
+set /g1/e1/s2 subtitle Applied migration.sql to staging through psql with exit code 0
+error /g1/e1/s1 resolved psql applied migration.sql to staging successfully, bypassing the missing psycopg driver
+```
+
+This is a contiguous excerpt; the complete program also creates a separate
+integrity-test step and records its verification error. The original failed
+Python attempt stays failed even though its obstruction is resolved.
+
+```sh
+bun evals/long_plan/run.ts --manifest evals/long_plan/owner_probe.json \
+  --owner reviewed --cache-budget --batch 24 --effort low --out NEW_RESULTS
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY \
+  --owner reviewed --cache-budget
+```
+
+Use `--owner syntax` or `--owner lean` for the comparison prompts. Historical
+replays use the same manifests, cache budget, low effort and receipt accounting
+as the filesystem experiment above. `report.ts` with `efficiency_checks.json`
+rescored the historical cases; synthetic/focus rubric meanings were unchanged.
+
+Raw programs, accepted snapshots and receipts are under
+`evals/results/long-plan/line-format/owner2-{syntax,reviewed,lean}-1-*`,
+`owner2-reviewed-2-*`, `live-owner2-*`, `owner2-*-probe*`,
+`owner2-reviewed-holdout24`, and `owner2-reviewed-cancel`. `owner-comparison.json`
+checks matched source evidence/checkpoints and includes both broad repeats and
+production-window repeats. `owner2-source/` preserves the evaluated source.
+
 #### Cost accounting
 
 Use API-equivalent dollars, not the sum of input and output tokens. Rates checked

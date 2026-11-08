@@ -555,3 +555,30 @@ test("a correct final title cannot rescue a missed recognition deadline", () => 
   expect(checks.find(c => c.name === "early")?.pass).toBe(false);
   expect(checks.find(c => c.name === "final")?.pass).toBe(true);
 });
+
+test("different-goal checks distinguish separate outcomes from siblings under one goal", () => {
+  const data = history.decode(
+    jsonl(
+      {
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Repair queue" }] },
+      },
+      {
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Change footer" }] },
+      },
+    ),
+    "codex",
+  );
+  const current = state();
+  current.nodes.push({ ...nodes[1], id: "e2" }, { ...nodes[2], id: "s2", parent: "e2" });
+  current.spans = [
+    { from: 1, to: 1, node: "s" },
+    { from: 2, to: 2, node: "s2" },
+  ];
+  const check: score.Check = { name: "separate outcomes", kind: "different_goal", a: 1, b: 2 };
+  expect(score.score(data, [current], [check]).find(c => c.name === check.name)?.pass).toBe(false);
+  current.nodes.push({ ...nodes[0], id: "g2" });
+  current.nodes.find(n => n.id === "e2")!.parent = "g2";
+  expect(score.score(data, [current], [check]).find(c => c.name === check.name)?.pass).toBe(true);
+});

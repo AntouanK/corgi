@@ -9,6 +9,7 @@ import * as scoring from "./score";
 import { Signals } from "./signals";
 import * as lines from "../../src/activity/plan_lines";
 import * as filesystem from "../../src/activity/plan_fs";
+import * as ownership from "../../src/activity/plan_owner";
 import * as compact from "../../src/activity/plan_protocol";
 import { Audit } from "./usage_audit";
 import { Context, priceBudget } from "../../src/activity/plan_context";
@@ -58,11 +59,19 @@ async function main() {
   const manifest = option("--manifest"),
     ops = !args.includes("--flat") && !args.includes("--legacy") && !args.includes("--cached"),
     plain = args.includes("--plain"),
-    wire = args.includes("--fs") ? filesystem : args.includes("--lines") ? lines : compact,
+    ownerVariant = option("--owner"),
+    wire = ownerVariant
+      ? ownership.variant(ownerVariant)
+      : args.includes("--fs")
+        ? filesystem
+        : args.includes("--lines")
+          ? lines
+          : compact,
+    textual = Boolean(ownerVariant) || wire === lines || wire === filesystem,
     reuse = ops && !args.includes("--stateless");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--fs | --lines | --json-ops] [--cache-budget] [--cache-turns N] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--owner syntax|reviewed|lean | --fs | --lines | --json-ops] [--cache-budget] [--cache-turns N] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
     );
   const cacheTurns = Number(option("--cache-turns", String(priceBudget.turns)));
   if (!Number.isInteger(cacheTurns) || cacheTurns < 1 || cacheTurns > 32) throw Error("InvalidCacheTurns");
@@ -115,6 +124,7 @@ async function main() {
       "../../src/activity/plan_protocol.ts",
       "../../src/activity/plan_lines.ts",
       "../../src/activity/plan_fs.ts",
+      "../../src/activity/plan_owner.ts",
       "../../src/activity/plan_input.ts",
       "../../src/activity/plan_context.ts",
       "usage_audit.ts",
@@ -134,6 +144,8 @@ async function main() {
       | "lines"
       | "filesystem"
       | "filesystem-deltas"
+      | "ownership"
+      | "ownership-deltas"
       | "line-deltas"
       | "stateless"
       | "cached-deltas"
@@ -160,14 +172,18 @@ async function main() {
     launches: thinking?.launches ?? [],
     baseline,
     transport:
-      ops && (wire === lines || wire === filesystem)
+      ops && textual
         ? reuse
-          ? wire === filesystem
-            ? "filesystem-deltas"
-            : "line-deltas"
-          : wire === filesystem
-            ? "filesystem"
-            : "lines"
+          ? ownerVariant
+            ? "ownership-deltas"
+            : wire === filesystem
+              ? "filesystem-deltas"
+              : "line-deltas"
+          : ownerVariant
+            ? "ownership"
+            : wire === filesystem
+              ? "filesystem"
+              : "lines"
         : reuse
           ? plain
             ? "compact-text-deltas"
@@ -357,10 +373,7 @@ async function main() {
               const invalid = error instanceof Error ? error.message : String(error);
               errors.push(`Invalid first attempt: ${invalid}`);
               conversation.invalidate();
-              const retry =
-                reuse && (wire === lines || wire === filesystem)
-                  ? context.retry(road, rawResponse, invalid, response.usage)
-                  : null;
+              const retry = reuse && textual ? context.retry(road, rawResponse, invalid, response.usage) : null;
               if (!retry) context.invalidate();
               const feedback = {
                 correction: `${correction(state, rawResponse, invalid)} Assign ONLY events ${events[0].id} through ${events.at(-1)!.id}.`,

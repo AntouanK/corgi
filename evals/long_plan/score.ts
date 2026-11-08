@@ -18,7 +18,7 @@ export type Check =
     }
   | { name: string; kind: "bump_count"; count: number }
   | { name: string; kind: "no_bump_started"; from: number; to: number }
-  | { name: string; kind: "same_episode" | "different_episode" | "same_goal"; a: number; b: number }
+  | { name: string; kind: "same_episode" | "different_episode" | "same_goal" | "different_goal"; a: number; b: number }
   | {
       name: string;
       kind: "topic" | "subtitle" | "label";
@@ -131,11 +131,13 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
       }
       case "same_episode":
       case "different_episode":
-      case "same_goal": {
-        const level = check.kind === "same_goal" ? "goal" : "episode";
+      case "same_goal":
+      case "different_goal": {
+        const level = check.kind === "same_goal" || check.kind === "different_goal" ? "goal" : "episode";
         const a = ancestor(state, check.a, level),
           b = ancestor(state, check.b, level);
-        pass = !!a && !!b && (check.kind === "different_episode" ? a.id !== b.id : a.id === b.id);
+        pass =
+          !!a && !!b && (["different_episode", "different_goal"].includes(check.kind) ? a.id !== b.id : a.id === b.id);
         detail = `${a?.title ?? "unassigned"} / ${b?.title ?? "unassigned"}`;
         break;
       }

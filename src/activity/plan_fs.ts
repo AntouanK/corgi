@@ -109,6 +109,8 @@ const commands = {
   work: true,
   note: true,
   ignore: true,
+  set_owner: true,
+  set_focus: true,
 } as const;
 type Command = keyof typeof commands;
 type Entry = Pick<plan.Node, "id" | "parent" | "kind">;
@@ -125,6 +127,14 @@ function identity(value: string) {
 
 /** Paths are virtual node selectors. No command is executed by a shell. */
 export function apply(input: Input, raw: string) {
+  return program(input, raw, false);
+}
+
+export function applyOwner(input: Input, raw: string) {
+  return program(input, raw, true);
+}
+
+function program(input: Input, raw: string, ownership: boolean) {
   if (!input.events.length) throw Error("InvalidPrefix");
   const source = raw
     .split(/\r?\n/)
@@ -139,6 +149,8 @@ export function apply(input: Input, raw: string) {
     operations: unknown[][] = [],
     evidence = input.events.map(e => e.id);
   const repairs: string[] = [];
+  const owners: { from: number; to: number; node: string | null }[] = [],
+    focusChanges: { at: number; node: string }[] = [];
   let cwd: string | null = null,
     next = input.events[0].id;
   let previousAssignment: { to: number; id: string | null; focus: boolean } | null = null;
@@ -210,6 +222,8 @@ export function apply(input: Input, raw: string) {
   }
   for (const line of body) {
     const name = command(line.split(/[ \t]+/, 1)[0]);
+    if (ownership ? ["work", "note", "ignore"].includes(name) : ["set_owner", "set_focus"].includes(name))
+      throw Error("InvalidOperation");
     function fields(count: number, text = false) {
       const pattern = new RegExp(`^\\S+${"[ \\t]+(\\S+)".repeat(count)}${text ? "[ \\t]+(.+)" : "(?:[ \\t]+#.*)?"}$`);
       const matched = pattern.exec(line);
@@ -238,6 +252,12 @@ export function apply(input: Input, raw: string) {
           id = target(path),
           field = value.split(/[ \t]+/, 1)[0];
         switch (field) {
+          case "state": {
+            if (!ownership) throw Error("InvalidOperation");
+            const [, , state] = fields(3);
+            operations.push(["=", id, state === "skipped" ? "abandoned" : state, proof()]);
+            break;
+          }
           case "title":
           case "subtitle": {
             const [, , detail] = fields(2, true);
@@ -275,6 +295,40 @@ export function apply(input: Input, raw: string) {
         else operations.push(["!", id, kind, detail, proof()]);
         break;
       }
+      case "set_owner": {
+        const [range, path] = fields(2),
+          match = /^([1-9][0-9]*)(?:\.\.([1-9][0-9]*))?$/.exec(range);
+        if (!match) throw Error("InvalidCoverage");
+        const from = Number(match[1]),
+          to = Number(match[2] ?? match[1]),
+          node = path === "none" ? null : target(path);
+        if (
+          !Number.isSafeInteger(from) ||
+          !Number.isSafeInteger(to) ||
+          from < input.events[0].id ||
+          to > end ||
+          from > to
+        )
+          throw Error("InvalidCoverage");
+        if (node !== null && nodes.get(node)!.kind !== "step") throw Error("NotStep");
+        if (owners.some(span => span.from === from && span.to === to && span.node === node))
+          repairs.push("ignored duplicate ownership");
+        else owners.push({ from, to, node });
+        break;
+      }
+      case "set_focus": {
+        const [event, path] = fields(2),
+          at = Number(event),
+          node = target(path);
+        if (!/^[1-9][0-9]*$/.test(event) || !Number.isSafeInteger(at) || at < input.events[0].id || at > end)
+          throw Error("InvalidFocus");
+        if (nodes.get(node)!.kind !== "step") throw Error("NotStep");
+        const existing = focusChanges.find(change => change.at === at);
+        if (existing && existing.node !== node) throw Error("InvalidFocus");
+        if (!existing) focusChanges.push({ at, node });
+        else repairs.push("ignored duplicate focus");
+        break;
+      }
       case "work":
       case "note": {
         const match =
@@ -293,6 +347,30 @@ export function apply(input: Input, raw: string) {
         break;
       }
     }
+  }
+  if (ownership) {
+    owners.sort((a, b) => a.from - b.from);
+    focusChanges.sort((a, b) => a.at - b.at);
+    let focus = protocol.focus(input),
+      changeIndex = 0;
+    for (const span of owners) {
+      if (span.from !== next) throw Error("InvalidCoverage");
+      let from = span.from;
+      while (changeIndex < focusChanges.length && focusChanges[changeIndex].at <= span.to) {
+        const change = focusChanges[changeIndex++];
+        if (change.at < span.from || change.node !== span.node) throw Error("InvalidFocus");
+        if (from < change.at)
+          operations.push(["@", change.at - 1, span.node, span.node !== null && span.node === focus ? 1 : 0]);
+        const event = input.events.find(event => event.id === change.at)!;
+        if (event.kind === "result" || event.kind === "lifecycle") repairs.push(`ignored passive focus: ${change.at}`);
+        else focus = change.node;
+        from = change.at;
+      }
+      operations.push(["@", span.to, span.node, span.node !== null && span.node === focus ? 1 : 0]);
+      next = span.to + 1;
+    }
+    if (next !== end + 1) throw Error("IncompleteCoverage");
+    if (changeIndex !== focusChanges.length) throw Error("InvalidFocus");
   }
   const order = { goal: 0, episode: 1, step: 2 };
   const creations = [...created.values()].sort(
