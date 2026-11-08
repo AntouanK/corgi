@@ -312,3 +312,34 @@ test("neutral events and unchanged observations do not create extra visits", () 
   expect(next[0].to).toBe(7);
   expect(visits[0].to).toBe(5);
 });
+
+test("background polls and late results update the original visit without stealing focus", () => {
+  const road = new roadmap.Roadmap();
+  const items = [...nodes(), { ...nodes()[2], id: "other", title: "Edit retry handling" }];
+  for (const [index, step, focus] of [
+    [1, "s", true],
+    [2, "other", true],
+    [3, "s", false],
+  ] as const) {
+    road.observe("t", "working", "Observation " + index, new List(), usage(BigInt(index * 100)), index);
+    road.apply(
+      road.request()!,
+      JSON.stringify({
+        nodes: index === 1 ? items : [],
+        spans: [{ from: index, to: index, node: step, focus }],
+      }),
+    );
+  }
+  expect(road.focus_step).toBe("other");
+  expect(road.visits.map(v => [v.step, v.from, v.to, v.counts.input])).toEqual([
+    ["s", 1, 1, "100"],
+    ["other", 2, 2, "100"],
+  ]);
+  // More usage for the same late observation still belongs to the original step.
+  road.observe("t", "working", "Observation 3", new List(), usage(350n), 4);
+  expect(road.visits[0].counts.input).toBe("150");
+  const restored = roadmap.Roadmap.restore(JSON.parse(JSON.stringify(road)), true);
+  expect(restored.focus_step).toBe("other");
+  expect(restored.visits).toEqual(road.visits);
+  expect(road.visits.reduce((sum, v) => roadmap.add(sum, v.counts), roadmap.zero())).toEqual(road.counts.g);
+});

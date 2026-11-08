@@ -2,6 +2,7 @@ import * as history from "./history";
 import type { History, Tokens } from "./history";
 import type { State } from "../../src/activity/plan";
 import * as roadmap from "../../src/activity/roadmap";
+import { foreground } from "../../src/activity/plan";
 export * from "../../src/activity/plan";
 
 export function ledger(state: State, data: History, throughLine = Infinity) {
@@ -26,7 +27,8 @@ export function ledger(state: State, data: History, throughLine = Infinity) {
 /** Replay the same visits as live Corgi, with receipts kept on their generating visit. */
 export function snapshot(state: State, data: History, throughLine = Infinity): roadmap.Snapshot {
   const book = ledger(state, data, throughLine),
-    visits = roadmap.appendVisits([], state.spans),
+    attention = foreground(state.spans, data.events),
+    visits = roadmap.appendVisits([], attention),
     counts: Record<string, roadmap.Counts> = Object.fromEntries(
       state.nodes.map(n => [n.id, { ...book.counts[n.id], tools: "0" }]),
     ),
@@ -55,8 +57,8 @@ export function snapshot(state: State, data: History, throughLine = Infinity): r
   return {
     nodes: state.nodes,
     visits,
-    focus: roadmap.focusEpisode(state.nodes, state.spans),
-    focus_step: roadmap.focusStep(state.spans),
+    focus: roadmap.focusEpisode(state.nodes, attention),
+    focus_step: roadmap.focusStep(attention),
     counts,
     unassigned: { ...book.unattributed, tools: String(unassignedTools) },
     known: book.known,

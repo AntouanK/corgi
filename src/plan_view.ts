@@ -22,7 +22,6 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
   if (view.visits.length) {
     const nodes = new Map(view.nodes.map(n => [n.id, n])),
       seenEpisodes = new Set<string>(),
-      seenSteps = new Set<string>(),
       bumps = new Map<string, number>(),
       blocks: Block[] = [];
     for (const node of view.nodes) {
@@ -60,9 +59,7 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
         depth: 1,
         counts: visit.counts,
         current: running !== false && latest && currentStep(view, step),
-        returned: seenSteps.has(step.id) && !block.heading.returned,
       });
-      seenSteps.add(step.id);
       if (block.heading.current && ["done", "abandoned", "planned"].includes(step.state))
         block.children.push({ kind: "pending", parent: episode });
     });

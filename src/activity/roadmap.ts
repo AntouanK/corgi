@@ -134,9 +134,9 @@ export function decode(value: unknown): Snapshot {
   };
 }
 
-/** Latest attributed work determines focus; completion and unassigned events do not move it. */
+/** Foreground work determines focus; late results only update attribution. */
 export function focusStep(spans: plan.Span[], previous: string | null = null): string | null {
-  return spans.findLast(s => s.node !== null)?.node ?? previous;
+  return spans.findLast(s => s.node !== null && s.focus !== false)?.node ?? previous;
 }
 export function focusEpisode(nodes: plan.Node[], spans: plan.Span[], previous: string | null = null): string | null {
   const id = focusStep(spans),
@@ -149,6 +149,7 @@ export function appendVisits(previous: Visit[], spans: plan.Span[]): Visit[] {
   const visits = previous.map(v => ({ ...v }));
   for (const span of spans) {
     if (span.node === null) continue;
+    if (span.focus === false && visits.some(v => v.step === span.node)) continue;
     const last = visits.at(-1);
     if (last?.step === span.node && last.to > 0) last.to = span.to;
     else visits.push({ step: span.node, from: span.from, to: span.to, counts: zero() });
@@ -156,7 +157,7 @@ export function appendVisits(previous: Visit[], spans: plan.Span[]): Visit[] {
   return visits;
 }
 export function visitAt(visits: Visit[], step: string, event: number) {
-  return visits.find(v => v.step === step && v.from <= event && event <= v.to);
+  return visits.findLast(v => v.step === step && v.from <= event);
 }
 
 /** Observed intervals only. The first sample is a baseline, never historical cost assigned to new work. */
@@ -293,8 +294,8 @@ export class Roadmap {
   }
   attribute(id: string | null, tokens: Counts) {
     if (!id) this.unassigned = add(this.unassigned, tokens);
-    const visit = this.visits.at(-1);
-    if (visit?.step === id) visit.counts = add(visit.counts, tokens);
+    const visit = this.visits.findLast(v => v.step === id);
+    if (visit) visit.counts = add(visit.counts, tokens);
     while (id) {
       this.counts[id] = add(this.counts[id] ?? zero(), tokens);
       id = this.state.nodes.find(n => n.id === id)?.parent ?? null;

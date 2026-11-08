@@ -2,8 +2,10 @@ import * as history from "./history";
 import * as plan from "./plan";
 import type { History } from "./history";
 import type { State } from "./plan";
+import * as roadmap from "../../src/activity/roadmap";
 
 export type Check =
+  | { name: string; kind: "focus"; event: number; target: number; level: "step" | "episode" }
   | { name: string; kind: "planned_step"; pattern: string }
   | { name: string; kind: "planned_only" }
   | {
@@ -75,6 +77,15 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
     let pass = false,
       detail = "";
     switch (check.kind) {
+      case "focus": {
+        const expected = ancestor(state, check.target, check.level);
+        const id = roadmap.focusStep(plan.foreground(state.spans, data.events).filter(s => s.from <= check.event));
+        let actual = state.nodes.find(n => n.id === id);
+        if (check.level === "episode") actual = state.nodes.find(n => n.id === actual?.parent);
+        pass = Boolean(expected && actual && expected.id === actual.id);
+        detail = `${actual?.title ?? "no focus"}; expected ${expected?.title ?? "unassigned"}`;
+        break;
+      }
       case "planned_step": {
         const nodes = state.nodes.filter(n => n.kind === "step" && n.state === "planned");
         pass = nodes.some(n => new RegExp(check.pattern, "i").test(n.title + " " + n.subtitle));

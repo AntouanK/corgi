@@ -45,8 +45,8 @@ support excerpts; a request handles at most eight observations. At 256 nodes or 
 plan reports its history limit and retains further cost as unassigned. These
 bounds protect the daemon; they are not a complete transcript archive.
 
-Defaulted snapshot/checkpoint/handoff additions keep runtime/viewer protocol 3
-and checkpoint/handoff 6. Old data decodes to an empty plan; there is no migration.
+The snapshot/checkpoint/handoff additions are defaulted and do not change the
+base branch’s wire or saved-format versions. Old data decodes to an empty plan; there is no migration.
 The preview flag survives handoff, with an explicitly supplied flag overriding
 saved mode. Older viewers ignore the optional plan.
 
@@ -59,10 +59,12 @@ A setback adds one explanation line beneath its step. Resolved problems keep a
 dimmed **!✓** and a struck-through explanation.
 A green **▶** marks the focused episode while it is active. Its current active
 step also gets a green **▶** and bold text; completed episodes and steps are dimmed
-while older unfinished steps keep ordinary text. The trail follows attributed
-work in time order. Switching to another step ends the visit; returning appends
-a new visit marked **↩** at the tail. Earlier visits stay in place. Consecutive
-work and neutral events do not create extra visits. Episode rows group consecutive
+while older unfinished steps keep ordinary text. The trail follows foreground work in time order. Cost attribution is separate:
+spans mark whether they describe foreground work or a background result/poll.
+Late results update their original visit without moving attention. Deliberately
+resuming a task appends a visit; **↩** appears once on a returned episode, not on
+every repeated child. Earlier visits stay in place. Consecutive work and neutral
+events do not create extra visits. Episode rows group consecutive
 visits to that episode and show their combined cost. Steps show only their visit
 cost; totals still count the whole conversation once. Late receipts stay with their
 generating visit. Problems appear on the visit where they arose, with recovery
@@ -74,7 +76,7 @@ does not reopen work or charge its usage to the preceding step. Old replay
 artifacts obtain lifecycle from the frozen source without changing model evidence
 or accounting. Available tool-call counts
 and cached input remain visible. The optional `focus_step` defaults to null in old snapshots;
-runtime/viewer protocol 3 and saved-format 6 are unchanged. The optional `visits`
+The additions do not change wire or saved-format versions. The optional `visits`
 field persists chronology and cost. Older plans retain their step totals as
 entries with zero event ranges; new work appends after them without merging.
 An approach setback means rework caused by a disproved committed approach,
@@ -105,8 +107,10 @@ bun evals/long_plan/check_visits.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 
 `check_visits.ts` checks chronological prefixes, per-visit token/cache/call
 conservation, and active work at the tail at several heights, without model calls.
-The recorded development sessions and synthetic probes pass these checks at all
-276 accepted checkpoints, including 122 returns. Browser checks cover each at
+Before the focus correction, the recorded development sessions and synthetic
+probes passed these checks at 276 accepted checkpoints, despite 122 inferred
+step returns. That result missed excessive returns: attribution changes were
+incorrectly treated as changes in attention. Browser checks cover each at
 18, 24 and 34 rows. These rendering/accounting checks do not replace the semantic
 model checks or clear their existing findings.
 
@@ -181,7 +185,7 @@ archives the prior report. Repairs name any attempted identity/parent changes;
 the reducer still rejects rewritten history. Resuming a completed replay makes
 no additional model calls. Flat-baseline resume is not supported.
 
-Stored focus follows the last attributed work span. Null/unassigned events and
+Stored focus follows the last foreground work span; passive spans retain attribution without moving focus. Null/unassigned events and
 pauses retain focus; new work in another episode moves it. Returning to older work keeps it visible without changing episode or step
 order. Focus survives reload and cold recovery and
 defaults to null in old snapshots. Play icons require active state: a completed
@@ -202,6 +206,60 @@ total still includes the compaction. The browser uses the separate accounted
 history after `report.ts --refresh-usage`. Original histories, model patches and
 reports remain unchanged; all five full-session histories have identical model
 evidence and identical input, output and cached totals after recalculation.
+
+## 2026-11-08 refresh
+
+Rebased on main `3076252e`. Four newer conversations are frozen under
+`evals/results/long-plan/nov8-dataset`; the original candidate and revised model
+runs are retained separately. The supplied zstd session is a fork: import only
+records at or after the fork timestamp and response receipts owned by its session
+ID. Its inherited cumulative counter is not charged to this experiment.
+Forks without attributable direct receipts still require an ownership filter.
+
+| Conversation | Events | User turns | Episode returns | Setbacks |
+| --- | ---: | ---: | ---: | ---: |
+| Codex zstd compression experiment | 56 | 2 | 0 | 2 |
+| Claude website animation | 134 | 3 | 0 | 1 |
+| Claude installer design discussion | 53 | 3 | 0 | 0 |
+| Claude usage-handoff investigation | 434 | 8 | 1 | 4 |
+
+The zstd capture ends while work is running; it is not a completed benchmark.
+The two observed setbacks concern dictionary training/test overlap. The website
+case retains its failed test attempt after recovery. The installer case exposed
+a false verification bump in the first candidate: a factual correction during
+research is not a problem that blocked work. The revised prompt removes that
+marker. These are development examples, not a representative random sample.
+
+Foreground spans are now separate from attribution. Result and lifecycle events
+cannot move attention, even when the model groups them with a later command in
+one span. Late usage updates the original visit. A return marker appears on an
+episode, not every repeated step. No saved-format field changes are needed: focus
+is an inference-span field, while the existing stored focus/visits retain their
+shapes. Old inference artifacts without the field keep their original behavior.
+
+The revised four-session run passes 30/31 reviewed assertions. A 20-event synthetic
+probe passes 8/9: background polls and notifications do not steal focus, but the
+model split the repair into a separate episode instead of keeping it with the
+failed verification. The real-session failure is a final PR report interpreted
+as resumed implementation. This still creates excessive repeated steps in the
+long example, even though it no longer fills the panel with return icons.
+The candidate remains experimental; these failures are retained in `review.json`.
+The original model responses are unchanged when the deterministic focus reducer
+is re-evaluated. The semantic rubric was added after inspecting these histories.
+
+All 61 accepted checkpoints pass visit ordering, usage conservation, tail and
+lifecycle checks. Browser checks cover all five replays at three heights (183
+states), plus mobile width and deep links. The browser gallery uses actual Ghostty
+captures; the separate interactive replay remains a layout preview.
+
+To capture a replay with terminal font shaping and box drawing:
+
+```sh
+bun tools/ghostty_screenshot.ts --size 116x24 -o /tmp/plan.png -- \
+  bun evals/long_plan/capture.ts RUN_DIRECTORY CASE EVENT
+bun evals/long_plan/run.ts --manifest evals/long_plan/focus_probe.json \
+  --batch 4 --model claude:claude-haiku-5-5
+```
 
 ## 2026-10-31 results
 

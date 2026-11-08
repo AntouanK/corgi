@@ -92,6 +92,16 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
   const running = (value: boolean, line: number) => {
     if (activity.at(-1)?.running !== value) activity.push({ line, running: value });
   };
+  const meta = records.find(v => v.type === "session_meta"),
+    metadata = object(meta?.payload),
+    fork = provider === "codex" && Boolean(metadata.forked_from_id),
+    owner = string(metadata.id),
+    since = string(metadata.timestamp),
+    owned =
+      fork &&
+      Boolean(owner && since) &&
+      records.some(v => v.type === "token_usage_record" && object(v.payload).session_id === owner);
+  if (owned) history.warnings.push("Fork suffix only: inherited events and other sessions' receipts excluded.");
   const direct = records.some(v => v.type === "token_usage_record");
   const seen = new Set<string>(),
     counters = new Map<string, Tokens>(),
@@ -141,13 +151,14 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
       p = object(v.payload),
       m = object(v.message);
     if (provider === "codex") {
+      if (owned && (!at || at < since)) continue;
       if (v.type === "turn_context" || (v.type === "event_msg" && p.type === "task_started")) {
         if (v.type === "event_msg") running(true, line);
         const id = string(p.turn_id);
         if (id !== codexTurn) anchor = null;
         codexTurn = id;
       }
-      if (v.type === "session_meta" && (p.forked_from_id || object(p.source).subagent))
+      if (v.type === "session_meta" && ((p.forked_from_id && !owned) || object(p.source).subagent))
         history.warnings.push("Fork/child history: inherited usage must be excluded before adding to parent totals.");
       if (v.type === "response_item") {
         const type = string(p.type),
@@ -171,6 +182,7 @@ export function decode(raw: string, provider: Provider, source = "fixture"): His
           emit("assistant", "Delegated agent report: " + (blockText(p.content) || string(p.text)), line, at);
         }
       } else if (v.type === "token_usage_record") {
+        if (owned && p.session_id !== owner) continue;
         const id = string(p.response_id);
         if (!id) throw Error("MissingResponseIdentity");
         if (codexTurn && string(p.turn_id) && p.turn_id !== codexTurn && !responseAnchors.has(id))

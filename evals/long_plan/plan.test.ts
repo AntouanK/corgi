@@ -41,6 +41,84 @@ const nodes: plan.Node[] = [
 const patch = { nodes, spans: [{ from: 1, to: 2, node: "s" }] };
 const state = () => plan.apply(plan.empty(), JSON.stringify(patch), events).state;
 
+test("late-result attribution leaves foreground work and visit accounting intact", () => {
+  const initial = state();
+  const next = plan.apply(initial, JSON.stringify({ nodes: [], spans: [{ from: 3, to: 3, node: "s", focus: true }] }), [
+    { ...events[1], id: 3, line: 3, kind: "result", text: "background command finished" },
+  ]);
+  expect(next.patch.spans[0].focus).toBe(false);
+  expect(next.repairs).toEqual(["ignored passive focus: 3-3"]);
+});
+
+test("a mixed span cannot move focus on a notification before its foreground command", () => {
+  const normalized = plan.foreground(
+    [
+      { from: 1, to: 2, node: "current", focus: true },
+      { from: 3, to: 5, node: "older", focus: true },
+    ],
+    [
+      { ...events[1], id: 3, kind: "lifecycle", text: "Background tests completed" },
+      { ...events[1], id: 4, kind: "tool", text: "Inspect completed test results" },
+      { ...events[1], id: 5, kind: "result", text: "46 suites passed" },
+    ],
+  );
+  expect(normalized).toEqual([
+    { from: 1, to: 2, node: "current", focus: true },
+    { from: 3, to: 3, node: "older", focus: false },
+    { from: 4, to: 4, node: "older", focus: true },
+    { from: 5, to: 5, node: "older", focus: false },
+  ]);
+});
+
+test("fork imports exclude inherited history and foreign receipts, not the owned response usage", () => {
+  const data = history.decode(
+    jsonl(
+      {
+        timestamp: "2026-11-08T01:00:00Z",
+        type: "session_meta",
+        payload: {
+          id: "fork",
+          forked_from_id: "parent",
+          timestamp: "2026-11-08T01:00:00Z",
+        },
+      },
+      {
+        timestamp: "2026-11-07T00:00:00Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ text: "Inherited work" }],
+        },
+      },
+      {
+        timestamp: "2026-11-08T01:00:01Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ text: "Build the compression benchmark" }],
+        },
+      },
+      ...["parent", "fork"].map(session_id => ({
+        timestamp: "2026-11-08T01:00:02Z",
+        type: "token_usage_record",
+        payload: {
+          session_id,
+          response_id: session_id,
+          usage: { input_tokens: 100, cached_input_tokens: 80, output_tokens: 10 },
+          thread_token_usage: { input_tokens: 97000000, output_tokens: 600000 },
+        },
+      })),
+    ),
+    "codex",
+  );
+  expect(data.events.map(e => e.text)).toEqual(["Build the compression benchmark"]);
+  expect(data.receipts).toHaveLength(1);
+  expect(history.total(data.receipts[0].tokens)).toBe(110n);
+  expect(data.warnings[0]).toStartWith("Fork suffix only");
+});
+
 test("replay visits preserve returns and charge late receipts to the generating visit", () => {
   const steps = [...nodes, { ...nodes[2], id: "other", title: "Inspect test output" }];
   const replay: plan.State = {

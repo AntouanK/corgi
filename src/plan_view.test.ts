@@ -298,7 +298,7 @@ test("resumed episodes and steps stay at the tail with visit costs and one pair 
   });
   const rows = planView.tail(view, 30).rows.filter(r => r.kind === "node");
   expect(rows.map(r => r.node.id)).toEqual(["e", "s", "s2", "s", "e2", "s3", "e", "s"]);
-  expect(rows.filter(r => r.returned).map(r => r.node.id)).toEqual(["s", "e"]);
+  expect(rows.filter(r => r.returned).map(r => r.node.id)).toEqual(["e"]);
   expect(rows.filter(r => r.current).map(r => r.node.id)).toEqual(["e", "s"]);
   expect(rows.filter(r => r.depth === 0).map(r => r.counts?.input)).toEqual(["600", "400", "500"]);
   expect(rows.filter(r => r.node.bump)).toHaveLength(1);
@@ -312,7 +312,7 @@ test("resumed episodes and steps stay at the tail with visit costs and one pair 
     const screen = terminal.text();
     expect((screen.match(/▶/g) ?? []).length).toBe(2);
     expect(screen).toContain("▶ ↩ Correct retry offsets");
-    expect(screen).toContain("↩ Run resume tests");
+    expect(screen).not.toContain("↩ Run resume tests");
     expect(
       screen
         .split("\n")
