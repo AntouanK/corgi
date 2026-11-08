@@ -21,7 +21,7 @@ export type Check =
   | { name: string; kind: "same_episode" | "different_episode" | "same_goal"; a: number; b: number }
   | {
       name: string;
-      kind: "topic" | "subtitle";
+      kind: "topic" | "subtitle" | "label";
       event: number;
       level: "goal" | "episode" | "step";
       pattern: string;
@@ -104,7 +104,11 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
       case "bump": {
         const snapshot = check.at === undefined ? state : snapshots.find(s => s.through >= check.at!);
         const node = snapshot && ancestor(snapshot, check.event, "step");
-        detail = node?.bump ? `${node.bump.kind}: ${node.bump.state} — ${node.bump.detail}` : "no bump";
+        detail = node?.bump
+          ? `${node.bump.kind}: ${node.bump.state} — ${node.bump.detail}`
+          : node
+            ? `no bump on ${node.title}`
+            : `event ${check.event} is unassigned`;
         pass =
           check.category === null
             ? !node?.bump
@@ -136,10 +140,17 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
         break;
       }
       case "topic":
-      case "subtitle": {
+      case "subtitle":
+      case "label": {
         const prefix = check.at === undefined ? state : snapshots.find(s => s.through >= check.at!);
         const node = prefix && ancestor(prefix, check.event, check.level);
-        detail = (check.kind === "topic" ? node?.title : node?.subtitle) ?? "unassigned";
+        detail = node
+          ? check.kind === "label"
+            ? `${node.title}: ${node.subtitle}`
+            : check.kind === "topic"
+              ? node.title
+              : node.subtitle
+          : "unassigned";
         pass = !!node && new RegExp(check.pattern, "i").test(detail);
         break;
       }

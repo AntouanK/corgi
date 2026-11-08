@@ -2,31 +2,66 @@ import * as protocol from "./plan_protocol";
 import type { State } from "./plan";
 import type { Input } from "./roadmap";
 import type { Request } from "../inference/harness";
+import type { Tokens } from "../usage/live";
+import * as text from "../text";
 
 const signature = (state: State) => JSON.stringify([state.through, state.nodes]);
 
+function hint(reason: string) {
+  switch (reason) {
+    case "RewrittenFailure":
+      return "A failed STEP stays failed permanently, including one marked failed earlier in this response. Remove active/done state edits on that attempt. Use resolve for recovery; create a NEW step for the successful retry and assign its work there.";
+    case "InvalidEvidence":
+      return "Every response that edits nodes needs a cite line with positive observed event IDs, never future events, tool IDs or hashes. Prefer 1-4 directly supporting IDs. Put the first cite immediately after BEGIN_PLAN.";
+    case "InvalidSubtitle":
+    case "InvalidBump":
+      return "Every new node needs a nonempty subtitle. Subtitles and setback details must be one line, at most 120 characters; aim below 90.";
+    case "InvalidTitle":
+      return "Titles must contain 2-7 words and at most 64 characters.";
+    case "InvalidCreation":
+      return "Use new only for IDs absent from accepted. Change an existing node with state/sub/title instead of recreating it.";
+    case "InvalidCoverage":
+    case "IncompleteCoverage":
+      return "Each work/note/skip takes ONE integer endpoint. Cover the supplied range exactly once in increasing order; the final endpoint must equal range[1].";
+    case "InvalidOperation":
+      return "Return one complete BEGIN_PLAN block. No second block, code fences or closing commentary. Every line must follow the command grammar.";
+    default:
+      return "Follow the validation rules in the system instructions.";
+  }
+}
+
 /** Accepted state is authoritative. Missing conversations always receive a complete seed. */
 export class Context {
-  constructor(private readonly wire: Pick<Request, "instructions" | "schema"> = protocol) {}
+  constructor(
+    private readonly wire: Pick<Request, "instructions" | "schema"> & {
+      encode?: (input: protocol.Envelope) => string;
+    } = protocol,
+    private readonly budget: { tokens: number; turns: number } | null = null,
+  ) {}
+  private encode(input: protocol.Envelope) {
+    return (this.wire.encode ?? protocol.encode)(input);
+  }
   private previous: Input | null = null;
   private expected = "";
   private key = "";
   private turns = 0;
+  private used: bigint | null = null;
   invalidate() {
     this.previous = null;
   }
   prepare(input: Input): Request {
-    if (!this.previous || this.expected !== signature(input.state) || this.turns >= 16) {
+    if (!this.previous || this.expected !== signature(input.state) || this.turns >= (this.budget?.turns ?? 16)) {
       this.previous = null;
       this.key = "plan:" + crypto.randomUUID();
       this.turns = 0;
+      this.used = null;
     }
-    const fresh = protocol.content(input);
+    const fresh = this.encode(protocol.envelope(input));
     let content = fresh;
     if (this.previous) {
       const nodes = new Map(this.previous.state.nodes.map(n => [n.id, JSON.stringify(n)])),
         support = new Map([...this.previous.support, ...this.previous.events].map(e => [e.id, e.text]));
-      content = JSON.stringify({
+      content = this.encode({
         tree_updates: input.state.nodes
           .filter(n => n.kind !== "step" || n.bump?.state === "open" || nodes.get(n.id) !== JSON.stringify(n))
           .map(protocol.node),
@@ -36,6 +71,19 @@ export class Context {
         events: input.events.map(protocol.event),
       });
     }
+    // Use observed prior usage plus a conservative byte bound for the next delta.
+    // Leave headroom for provider framing below Haiku's 100k price boundary.
+    if (
+      this.budget &&
+      this.used !== null &&
+      this.used + BigInt(text.byteLength(content)) > BigInt(this.budget.tokens)
+    ) {
+      this.previous = null;
+      this.key = "plan:" + crypto.randomUUID();
+      this.turns = 0;
+      this.used = null;
+      content = fresh;
+    }
     return {
       instructions: this.wire.instructions,
       schema: this.wire.schema,
@@ -44,9 +92,34 @@ export class Context {
       conversation: this.key,
     };
   }
-  accept(input: Input, state: State) {
+  accept(input: Input, state: State, usage?: Pick<Tokens, "input" | "output">) {
     this.previous = structuredClone(input);
     this.expected = signature(state);
     this.turns++;
+    this.used = usage ? usage.input + usage.output : null;
+  }
+
+  retry(input: Input, rejected: string, reason: string, usage: Pick<Tokens, "input" | "output">): Request {
+    const correction = `The previous response was rejected atomically: ${reason}. ${hint(reason)} NONE of its edits or assignments were applied. accepted lists the unchanged authoritative nodes; never recreate those IDs. Replace the ENTIRE response for events ${input.events[0].id} through ${input.events.at(-1)!.id}, using the original evidence still in this conversation. Return only the corrected operations.`,
+      content = JSON.stringify({ correction, accepted: input.state.nodes.map(protocol.node) }),
+      fresh = this.encode({ ...protocol.envelope(input), correction, rejected });
+    this.turns++;
+    this.used = usage.input + usage.output;
+    if (
+      this.turns >= (this.budget?.turns ?? 16) ||
+      (this.budget && this.used + BigInt(text.byteLength(content)) > BigInt(this.budget.tokens))
+    ) {
+      this.invalidate();
+      return { ...this.prepare(input), content: fresh, fresh_content: fresh };
+    }
+    return {
+      instructions: this.wire.instructions,
+      schema: this.wire.schema,
+      content,
+      fresh_content: fresh,
+      conversation: this.key,
+    };
   }
 }
+
+export const priceBudget = { tokens: 90_000, turns: 16 };

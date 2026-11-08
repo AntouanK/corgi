@@ -52,3 +52,18 @@ export class Audit {
     Stdio.prototype.read = this.original;
   }
 }
+
+/** Sum disjoint attempts; thinking remains a subset of output. */
+export function combine(attempts: ReturnType<Audit["take"]>[]) {
+  const sum = (key: "uncached_input" | "regular_input" | "cache_write_input" | "cache_read_input" | "output") =>
+    attempts.reduce((n, a) => n + a[key], 0n);
+  return {
+    uncached_input: sum("uncached_input"),
+    regular_input: sum("regular_input"),
+    cache_write_input: sum("cache_write_input"),
+    cache_read_input: sum("cache_read_input"),
+    output: sum("output"),
+    thinking: attempts.every(a => a.thinking !== null) ? attempts.reduce((n, a) => n + a.thinking!, 0n) : null,
+    receipts: attempts.flatMap(a => a.receipts),
+  };
+}

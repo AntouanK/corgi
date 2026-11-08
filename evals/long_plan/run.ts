@@ -10,7 +10,7 @@ import { Signals } from "./signals";
 import * as lines from "../../src/activity/plan_lines";
 import * as compact from "../../src/activity/plan_protocol";
 import { Audit } from "./usage_audit";
-import { Context } from "../../src/activity/plan_context";
+import { Context, priceBudget } from "../../src/activity/plan_context";
 import { Conversation } from "./cached";
 import { Thinking, brief } from "./thinking";
 import * as efforts from "../../src/providers/effort";
@@ -61,8 +61,10 @@ async function main() {
     reuse = ops && !args.includes("--stateless");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--lines | --json-ops] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--lines | --json-ops] [--cache-budget] [--cache-turns N] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
     );
+  const cacheTurns = Number(option("--cache-turns", String(priceBudget.turns)));
+  if (!Number.isInteger(cacheTurns) || cacheTurns < 1 || cacheTurns > 32) throw Error("InvalidCacheTurns");
   const selection = option("--case"),
     model = option("--model", "claude:claude-haiku-5-5"),
     [provider, ...parts] = model.split(":"),
@@ -111,6 +113,7 @@ async function main() {
       "cached.ts",
       "../../src/activity/plan_protocol.ts",
       "../../src/activity/plan_lines.ts",
+      "../../src/activity/plan_input.ts",
       "../../src/activity/plan_context.ts",
       "usage_audit.ts",
       "thinking.ts",
@@ -120,6 +123,8 @@ async function main() {
     model: string;
     effort: efforts.Effort;
     brief_thinking: boolean;
+    cache_budget: boolean;
+    cache_turns: number;
     timeout_ms: number;
     launches: Thinking["launches"];
     baseline: boolean;
@@ -145,6 +150,8 @@ async function main() {
     model,
     effort,
     brief_thinking: briefThinking,
+    cache_budget: args.includes("--cache-budget"),
+    cache_turns: cacheTurns,
     timeout_ms: timeout,
     launches: thinking?.launches ?? [],
     baseline,
@@ -181,12 +188,16 @@ async function main() {
       transport: "stateless",
       effort: "low",
       brief_thinking: false,
+      cache_budget: false,
+      cache_turns: 32,
       timeout_ms: 60000,
     };
     for (const key of [
       "model",
       "effort",
       "brief_thinking",
+      "cache_budget",
+      "cache_turns",
       "timeout_ms",
       "baseline",
       "transport",
@@ -242,7 +253,7 @@ async function main() {
         phaseId = "",
         phaseIndex = 0;
       const flatContext = new flat.Context();
-      const context = new Context(wire),
+      const context = new Context(wire, args.includes("--cache-budget") ? { ...priceBudget, turns: cacheTurns } : null),
         conversation = new Conversation();
       const cached: { state?: plan.State; through: number; raw?: string; error?: string }[] =
         resume && fs.existsSync(callsPath) ? JSON.parse(fs.readFileSync(callsPath, "utf8")) : [];
@@ -311,18 +322,17 @@ async function main() {
                 ? {
                     instructions: wire.instructions,
                     schema: plain ? null : wire.schema,
-                    content: compact.content(road),
+                    content: wire.encode(compact.envelope(road)),
                   }
                 : !cachedConversation
                   ? { instructions: plan.instructions, schema: plan.schema, content: JSON.stringify(content) }
                   : conversation.prepare(road);
           if (briefThinking) request.instructions = report.instructions;
           if (plain && ops) request.schema = null;
-          if (content !== input)
-            request.content = request.fresh_content = JSON.stringify({
-              ...content,
-              ...(ops ? JSON.parse(compact.content(road)) : {}),
-            });
+          if ("correction" in content)
+            request.content = request.fresh_content = ops
+              ? wire.encode({ ...compact.envelope(road), correction: content.correction, rejected: content.rejected })
+              : JSON.stringify(content);
           let response = await pool.infer(request, stopping);
           rawResponse = response.text();
           attempts.push({
@@ -339,19 +349,23 @@ async function main() {
               const invalid = error instanceof Error ? error.message : String(error);
               errors.push(`Invalid first attempt: ${invalid}`);
               conversation.invalidate();
-              context.invalidate();
-              const corrected = JSON.stringify({
-                ...(ops ? JSON.parse(compact.content(road)) : input),
+              const retry = reuse && wire === lines ? context.retry(road, rawResponse, invalid, response.usage) : null;
+              if (!retry) context.invalidate();
+              const feedback = {
                 correction: `${correction(state, rawResponse, invalid)} Assign ONLY events ${events[0].id} through ${events.at(-1)!.id}.`,
                 rejected: rawResponse,
-              });
+              };
+              const corrected = ops
+                ? wire.encode({ ...compact.envelope(road), ...feedback })
+                : JSON.stringify({ ...input, ...feedback });
               response = await pool.infer(
                 {
-                  ...(reuse ? context.prepare(road) : cachedConversation ? conversation.prepare(road) : request),
+                  ...(retry ??
+                    (reuse ? context.prepare(road) : cachedConversation ? conversation.prepare(road) : request)),
                   ...(plain && ops ? { schema: null } : {}),
                   instructions: report.instructions,
-                  content: corrected,
-                  fresh_content: corrected,
+                  content: retry?.content ?? corrected,
+                  fresh_content: retry?.fresh_content ?? corrected,
                 },
                 stopping,
               );
@@ -416,7 +430,7 @@ async function main() {
             const applied = ops ? wire.apply(road, rawResponse) : plan.apply(state, rawResponse, batch);
             state = applied.state;
             if (cachedConversation) conversation.accept(road, applied.state);
-            if (reuse) context.accept(road, applied.state);
+            if (reuse) context.accept(road, applied.state, response.usage);
             repairs = applied.repairs;
           }
           const snapshot = structuredClone(state),

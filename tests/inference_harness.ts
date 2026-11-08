@@ -120,7 +120,7 @@ for await (const line of createInterface({ input: process.stdin })) {
           : { label };
     if (schema && ("label" in control || "name" in control)) result = JSON.stringify(structured);
     if (control.roadmap && ("nodes" in properties || "ops" in properties || !(codex ? schema : claudeSchema))) {
-      const input = JSON.parse(content),
+      const input = JSON.parse(content.split("\n")[0]),
         from = input.range?.[0] ?? input.assign_from,
         to = input.range?.[1] ?? input.assign_through;
       if (input.tree) plan_nodes.clear();
@@ -156,12 +156,13 @@ for await (const line of createInterface({ input: process.stdin })) {
         !schema && !claudeSchema
           ? [
               "BEGIN_PLAN",
+              `cite ${to}`,
               ...additions.flatMap(n => [
-                `new ${n.id} ${n.parent ?? "-"} ${n.state === "failed" ? "f" : "a"} ${to} ${n.title}`,
-                `sub ${n.id} ${to} ${n.subtitle}`,
-                ...(n.bump ? [`bump ${n.id} ${n.bump.kind} ${to} ${n.bump.detail}`] : []),
+                `new ${n.id} ${n.parent ?? "-"} ${n.state} ${n.title}`,
+                `sub ${n.id} ${n.subtitle}`,
+                ...(n.bump ? [`bump ${n.id} ${n.bump.kind} ${n.bump.detail}`] : []),
               ]),
-              `at ${to} ${step} 1`,
+              `work ${to} ${step}`,
             ].join("\n")
           : JSON.stringify(
               "ops" in properties

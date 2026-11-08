@@ -145,13 +145,16 @@ test.each([
   let invalid = false;
   backend.pool.infer = async request => {
     requests.push(request);
-    const content = JSON.parse(request.content),
+    const content = JSON.parse(request.content.split("\n")[0]).correction
+        ? JSON.parse(request.fresh_content!.split("\n")[0])
+        : JSON.parse(request.content.split("\n")[0]),
       response = new Response();
     response.set(
       wire === lines
         ? `BEGIN_PLAN
-state s d ${content.range[1]}
-at ${content.range[1]} ${invalid ? "missing" : "s"} 1`
+cite ${content.range[1]}
+state s done
+work ${content.range[1]} ${invalid ? "missing" : "s"}`
         : JSON.stringify({
             ops: [
               ["=", "s", "d", content.range[1]],
@@ -182,8 +185,45 @@ at ${content.range[1]} ${invalid ? "missing" : "s"} 1`
     expect(requests[1].conversation).toBe(requests[0].conversation);
     invalid = false;
     expect((await backend.infer(flat, "one", "activity:1", source, false, road)).patch).toBeTruthy();
-    expect(requests[2].conversation).not.toBe(requests[1].conversation);
-    expect(JSON.parse(requests[2].content).tree).toEqual(road.state.nodes.map(protocol.node));
+    const afterRejection = requests[wire === lines ? 3 : 2];
+    expect(afterRejection.conversation).not.toBe(requests[1].conversation);
+    expect(JSON.parse(afterRejection.content.split("\n")[0]).tree).toEqual(road.state.nodes.map(protocol.node));
+  } finally {
+    backend.close();
+  }
+});
+
+test("line corrections reuse cached evidence and apply only the valid replacement", async () => {
+  const backend = new Backend(lines),
+    requests: Request[] = [],
+    road = input(),
+    before = structuredClone(road);
+  backend.pool.infer = async request => {
+    requests.push(request);
+    const response = new Response();
+    response.set(
+      requests.length === 1
+        ? "BEGIN_PLAN\ncite 2\nstate s done\nwork 2 missing"
+        : "BEGIN_PLAN\ncite 2\nstate s done\nwork 2 s",
+    );
+    return response;
+  };
+  try {
+    const result = await backend.infer(
+      { provider: "claude", turn: "one", phase: null, earlier: [], evidence: "Run tests" },
+      "one",
+      "activity:1",
+      { actor: 1, panes: [], agent_name: "Agent", session: "session", tools_since_last: 1n },
+      false,
+      road,
+    );
+    expect(requests).toHaveLength(2);
+    expect(requests[1].conversation).toBe(requests[0].conversation);
+    expect(JSON.parse(requests[1].content).correction).toContain("NONE");
+    expect(JSON.parse(requests[1].fresh_content!.split("\n")[0]).tree).toEqual(road.state.nodes.map(protocol.node));
+    expect(result.decision?.label?.text()).toBe("Check offsets");
+    expect(plan.apply(road.state, result.patch!, road.events).state.through).toBe(2);
+    expect(road).toEqual(before);
   } finally {
     backend.close();
   }

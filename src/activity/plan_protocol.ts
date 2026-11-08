@@ -5,10 +5,15 @@ const states = { p: "planned", a: "active", d: "done", f: "failed", b: "blocked"
 const kinds = { g: "goal", e: "episode", s: "step" } as const;
 const code = (values: Record<string, string>, value: string) => Object.keys(values).find(k => values[k] === value)!;
 
-export const inputInstructions = `Input tree rows: [id,parent,kind,title,subtitle,state,evidence,bump?]. kind g=goal,e=episode,s=step. State p=planned,a=active,d=done,f=failed,b=blocked,x=abandoned. A bump is [kind,state,detail,evidence].
-Input evidence rows: [event_id,turn,kind,text]. These preserve the original text; timestamps and source line numbers are irrelevant. support is older evidence, events is new evidence. Assign exactly range[0] through range[1]. tree is the COMPLETE authoritative accepted state. tree_updates instead upserts rows by ID; unmentioned rows are unchanged. Accepted state overrides previous proposals. Goals, episodes and open bumps are repeated in updates so constraints and unresolved problems remain explicit. Retain previously supplied support until a complete tree resets it.
+export function describeInput(
+  evidence = "Input evidence rows: [event_id,turn,kind,text]. These preserve the original text; timestamps and source line numbers are irrelevant.",
+) {
+  return `Input tree rows: [id,parent,kind,title,subtitle,state,evidence,bump?]. kind g=goal,e=episode,s=step. State p=planned,a=active,d=done,f=failed,b=blocked,x=abandoned. A bump is [kind,state,detail,evidence].
+${evidence} support is older evidence, events is new evidence. Assign exactly range[0] through range[1]. tree is the COMPLETE authoritative accepted state. tree_updates instead upserts rows by ID; unmentioned rows are unchanged. Accepted state overrides previous proposals. Goals, episodes and open bumps are repeated in updates so constraints and unresolved problems remain explicit. Retain previously supplied support until a complete tree resets it.
 focus is the server's last foreground step. Keep it for continuity until actual new work changes activity. A final report belongs to the work being reported; mentioning an older implementation or test in a PR report does not resume it. Attribute genuinely late results to their original step with focus 0.
 `;
+}
+export const inputInstructions = describeInput();
 
 export const policy = `Keep titles to 2-7 words and subtitles under 90 characters, leaving headroom below the 120-character hard limit. Preserve the user outcome and defining constraints; repository setup or choosing a worktree is not the problem being solved.
 Relevant step subtitles must carry the task's defining correctness constraint too: for example, an evaluation's train/test separation or a deployment's target environment. Keep that constraint visible when implementing or running the step, rather than replacing it with generic implementation mechanics.
@@ -73,23 +78,35 @@ export const node = (n: plan.Node) => [
   n.evidence,
   ...(n.bump ? [[n.bump.kind, n.bump.state, n.bump.detail, n.bump.evidence]] : []),
 ];
-export const event = (e: plan.Event) => [e.id, e.turn, e.kind, e.text];
+export const event = (e: plan.Event): [number, number, plan.Event["kind"], string] => [e.id, e.turn, e.kind, e.text];
 export const focus = (input: Input) =>
   input.focus === undefined
     ? (input.state.spans.findLast(s => s.node !== null && s.focus !== false)?.node ?? null)
     : input.focus;
-export function content(input: Input) {
-  return JSON.stringify({
+export type Envelope = {
+  tree?: ReturnType<typeof node>[];
+  tree_updates?: ReturnType<typeof node>[];
+  support: ReturnType<typeof event>[];
+  events: ReturnType<typeof event>[];
+  focus: string | null;
+  range: number[];
+  correction?: string;
+  rejected?: string;
+};
+export function envelope(input: Input): Envelope {
+  return {
     tree: input.state.nodes.map(node),
     support: input.support.map(event),
     focus: focus(input),
     range: [input.events[0].id, input.events.at(-1)!.id],
     events: input.events.map(event),
-  });
+  };
 }
+export const encode = (input: Envelope) => JSON.stringify(input);
+export const content = (input: Input) => encode(envelope(input));
 function evidence(value: unknown): number[] {
   const ids = Array.isArray(value) ? value : [value];
-  if (!ids.length || ids.length > 4 || ids.some(id => !Number.isSafeInteger(id) || id < 1))
+  if (!ids.length || ids.length > plan.maxEvidence || ids.some(id => !Number.isSafeInteger(id) || id < 1))
     throw Error("InvalidEvidence");
   return ids as number[];
 }
@@ -185,7 +202,7 @@ export function applyOperations(input: Input, operations: unknown[]) {
           if (!plan.bumpKinds.includes(op[2])) throw Error("InvalidBump");
           const cited = evidence(op[4]);
           if (n.bump && !cited.includes(n.bump.evidence[0])) cited.unshift(n.bump.evidence[0]);
-          n.bump = { kind: n.bump?.kind ?? op[2], state: "open", detail: op[3], evidence: cited.slice(0, 4) };
+          n.bump = { kind: n.bump?.kind ?? op[2], state: "open", detail: op[3], evidence: cited };
           n.evidence = n.bump.evidence;
           if (n.bump.kind === "verification") n.state = "failed";
           break;
@@ -198,7 +215,7 @@ export function applyOperations(input: Input, operations: unknown[]) {
           n.bump = {
             ...n.bump,
             state: "resolved",
-            evidence: [...new Set([n.bump.evidence[0], ...n.evidence])].slice(0, 4),
+            evidence: [...new Set([n.bump.evidence[0], ...n.evidence])],
           };
           break;
         default:

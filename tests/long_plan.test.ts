@@ -68,7 +68,8 @@ class Plans extends Summaries {
     await this.start_turn("second", false);
     this.tools(1, "bun test focus");
     await this.advance(10);
-    await this.until(() => this.calls().some(raw => JSON.parse(raw).tree?.length === 3));
+    // Literal source lines are indented; metadata begins at column zero.
+    await this.until(() => this.calls().some(raw => raw.startsWith("{") && JSON.parse(raw).tree?.length === 3));
     this.assertEqual(
       (await view()).nodes.map((n: any) => n.id),
       ["g", "e", "s"],

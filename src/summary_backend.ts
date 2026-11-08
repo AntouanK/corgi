@@ -6,7 +6,7 @@ import * as contract from "./activity/prompt";
 import type { Input as RoadInput } from "./activity/roadmap";
 import * as plan_protocol from "./activity/plan_protocol";
 import * as plan_lines from "./activity/plan_lines";
-import { Context } from "./activity/plan_context";
+import { Context, priceBudget } from "./activity/plan_context";
 import { Text } from "./agents";
 const log = getLogger("activity_summary");
 export { contract };
@@ -29,7 +29,7 @@ export function outcome(request: bigint, discard: Discard | null) {
   });
 }
 export class Backend {
-  constructor(private readonly planProtocol = process.env.CORGI_LONG_PLAN_LINES === "1" ? plan_lines : plan_protocol) {}
+  constructor(private readonly planProtocol = process.env.CORGI_LONG_PLAN_LINES === "0" ? plan_protocol : plan_lines) {}
   pool = new Pool();
   next_request = 0n;
   private plans = new Map<string, Context>();
@@ -47,7 +47,8 @@ export class Backend {
     this.plans.clear();
   }
   private planContext(key: string) {
-    const context = this.plans.get(key) ?? new Context(this.planProtocol);
+    const context =
+      this.plans.get(key) ?? new Context(this.planProtocol, this.planProtocol === plan_lines ? priceBudget : null);
     this.plans.delete(key);
     this.plans.set(key, context);
     if (this.plans.size > 4) this.plans.delete(this.plans.keys().next().value!);
@@ -103,8 +104,25 @@ export class Backend {
       let patch: string | null = null;
       let decision: { action: contract.Action; label: Text | null };
       if (road) {
-        const applied = this.planProtocol.apply(road, response.text());
-        roadContext!.accept(road, applied.state);
+        let applied;
+        try {
+          applied = this.planProtocol.apply(road, response.text());
+        } catch (error) {
+          if (this.planProtocol !== plan_lines) throw error;
+          log.info("Plan correction requested", {
+            event: "retry",
+            context,
+            err: (error as Error).message,
+            output: response.text(),
+            usage: response.usage,
+          });
+          response = await this.pool.infer(
+            roadContext!.retry(road, response.text(), (error as Error).message, response.usage),
+            stopping,
+          );
+          applied = this.planProtocol.apply(road, response.text());
+        }
+        roadContext!.accept(road, applied.state, response.usage);
         patch = JSON.stringify(applied.patch);
         const id = applied.patch.spans.at(-1)?.node,
           current = applied.state.nodes.find(n => n.id === id);

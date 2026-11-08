@@ -2,8 +2,8 @@
 
 An experimental eval and opt-in Corgi integration for a durable account of an
 agent's work. The replay and daemon share `src/activity/plan.ts`: the prompt,
-patch validation, hierarchy and setback contract. Flat summaries remain the
-default while historical replay failures are unresolved.
+patch validation, hierarchy and setback contract. Flat summaries remain the default. The opt-in plan updater uses line operations;
+its semantic limitations and measured costs are recorded below.
 
 ## Try the integration
 
@@ -282,128 +282,213 @@ positions do not imply continuous activity.
 
 ### Haiku inference efficiency
 
-The opt-in line-format updater returns plain text: a `BEGIN_PLAN` boundary followed by one
-operation per line. Fixed arguments are separated by spaces; a title, subtitle or setback explanation occupies the
-rest of its line. Quotes, brackets, shell pipes and backslashes are literal:
-there is no escaping layer or enclosing object. A prose preamble before the
-boundary is ignored; malformed operations after it still reject the patch.
-A response containing only valid operations also works without the boundary.
-Newlines separate operations, so text fields are single-line, like the UI labels
-they supply.
+The line updater returns a `BEGIN_PLAN` boundary followed by one command per line.
+Fixed arguments use spaces; titles, subtitles and problem explanations occupy the
+rest of their line. Quotes, brackets, pipes and backslashes are literal. There is
+no JSON wrapper, escaping layer, closing marker or formatter tool. Accepted state and request metadata still use compact JSON. Transcript evidence
+is sent literally beneath numbered headers, avoiding another layer of JSON
+escaping around code and tool arguments. Every source line gets one leading space,
+so even source text resembling a header remains quoted evidence. A round-trip
+test verifies that this changes no event IDs, kinds, turns or text.
 
 ```text
 BEGIN_PLAN
-new s3 e1 d 16,19 Fix import and rerun suite
-sub s3 16,19 Replace removed installer import, then rerun the suite serially
-resolve s1 19
-at 19 s3 1
+cite 16,19
+new s3 e1 done Fix import and rerun suite
+sub s3 Replace removed installer import, then rerun the suite serially
+resolve s1
+work 19 s3
 ```
 
-This illustrative patch creates `s3` under episode `e1`, supplies its subtitle,
-resolves the setback on `s1`, and attributes the new event range through 19 to
-`s3`. Every new node needs both `new` and `sub`. The operations are:
+This creates a successful retry under `e1`, resolves the problem on the original
+failed attempt `s1`, and attributes the new events through 19 to `s3`. The old
+attempt stays failed. Every new node needs `new` and `sub`.
 
-| Line | Meaning |
+| Command | Meaning |
 | --- | --- |
-| `new id parent state evidence title` | Create a node; parent `-` means goal |
-| `sub id evidence subtitle` | Set a subtitle |
-| `title id evidence title` | Set a title |
-| `state id state evidence` | Change state |
-| `bump id kind evidence detail` | Record a setback |
-| `resolve id evidence` | Resolve a setback |
-| `at through id-or-dash focus` | Attribute events; focus is 0 or 1 |
+| `cite 12,14` | Set supporting event IDs for edits |
+| `new id parent state title` | Create a node; parent `-` means goal |
+| `sub id subtitle` | Set a subtitle |
+| `title id title` | Set a title |
+| `state id state` | Change state |
+| `bump id kind detail` | Record a problem on its attempt |
+| `resolve id` | Mark that problem recovered, preserving the failed attempt |
+| `work end_id step_id` | Attribute foreground work through one inclusive endpoint |
+| `note end_id step_id` | Attribute passive work without moving focus |
+| `skip end_id` | Cover events with no grounded work |
 
-Evidence is 1-4 numeric event IDs, comma-separated without brackets. States are
-`p` planned, `a` active, `d` done, `f` failed, `b` blocked, `x` abandoned.
-Unchanged activity usually needs only `at`. Input state/evidence remains JSON;
-the model's output has no JSON schema or formatter tool. The strict line parser
-and the JSON comparison control share the same reducer and semantic validation.
-Malformed lines, missing subtitles, invalid evidence and incomplete coverage
-reject the whole patch without changing state. The application derives hierarchy,
-preserves failure evidence, and expands operations to the existing canonical patch
-before validation and persistence.
-A verification setback marks its attempt failed; resolving the setback cannot
-rewrite that attempt as successful.
+States are `planned`, `active`, `done`, `failed`, `blocked`, and `abandoned`.
+Unchanged activity usually needs only `work` or `note`. The first `cite` supplies
+the response's default evidence, including edits preceding it; subsequent `cite`
+lines change evidence for following edits. The prompt encourages putting it first
+and using 1–4 relevant IDs. Lists up to 64 retain all supplied IDs, rather than
+silently dropping provenance. No citation carries into the next response.
 
-A bounded inference conversation receives accepted changes instead of repeating
-the full tree. Goals, episodes and unresolved problems stay explicit on every
-update. It reseeds from the full canonical state after 16 updates, rejection,
-state divergence, eviction or restart. The last accepted foreground step is an
-explicit input. Pending handoff requests gain an optional focus hint; older
-requests fall back to their recorded spans or unknown focus. The application
-still supplies the same observations on the same cadence. No additional evidence
-is truncated.
+The shared reducer validates identity, hierarchy, observed evidence, immutable
+failed attempts, recovery evidence and complete event coverage before applying
+anything. Missing citations and contradictory commands reject the entire patch.
+A leading prose preamble before `BEGIN_PLAN` is tolerated. A lone trailing marker,
+an exact adjacent duplicate attribution, redundant `through`, and an exact repeat
+of an accepted creation are safe syntax normalizations; each is recorded in the
+replay's repairs. Different titles, parents or states are not duplicate creations.
 
-Compact JSON remains the default because the line experiment has not met the
-no-quality-loss target. Both replay runners select lines with `--lines`; the
-explicit `--json-ops` control retains the unchanged JSON instructions. To try
-lines in a separate Corgi environment:
+The cached conversation receives accepted changes, goals, episodes and open
+problems on each update. It receives a complete seed on eviction, restart or state
+divergence. The line configuration refreshes after 16 accepted updates or when
+prior observed input plus output and a conservative bound on the new delta would
+exceed 90k tokens. This leaves room below Haiku's 100k price boundary. The full
+seed itself is not truncated. The eval can vary the turn limit with
+`--cache-budget --cache-turns N`.
 
-```sh
-CORGI_LONG_PLAN=1 CORGI_LONG_PLAN_LINES=1 ./go.ts --env long-plan-lines --no-kill
-```
+One correction is allowed after rejection. It includes the validation reason,
+a specific repair hint and the unchanged accepted nodes; the transcript remains
+cached. If that context was evicted or exceeds the budget, the correction has a
+complete seed. A second invalid proposal leaves accepted state untouched. Both
+attempts are charged and recorded. The daemon and replay runner use this same
+correction policy.
 
-Both formats retain accepted-state caching, evidence and observation cadence.
-The receipt audit includes rejected attempts and extra provider formatting calls.
+The prompt includes examples and counterexamples for TODO-only intentions,
+failed reproductions versus expected red tests, abandoned implementations versus
+uncommitted hypotheses, successful retries, returning from a side investigation,
+publication under the original episode, substantive final reports and ordinary
+nonzero search/cleanup results. Low effort and brief deliberation are encouraged, with a soft 400-token target
+for changed state and no analysis for routine continuation. This is a prompt
+preference, not an enforced provider limit. An aggressive 200-token target and a
+shorter policy were rejected after semantic regressions. Examples also cover two
+distinct failures inside one batch and substantive explanations that announce
+future work.
 
-Two independent low-effort replays of four real and seventeen synthetic/probe
-conversations compare the final line prompt (`line-format/v6-{1,2}-*`) with the
-saved JSON control (`thinking-sweep/low-{1,2}-*`). Both use the same source events,
-99 checkpoints per run and fixed rubric. Token rows are means per run; quality
-and retry rows aggregate both runs:
-
-| Broader replay measurement | Compact JSON | Operation lines |
-| --- | ---: | ---: |
-| Input excluding cache reads | 320,577 | 318,552 |
-| Cached input | 2,689,735 | 2,458,584 |
-| Output, including thinking | 86,459 | 60,459 |
-| Thinking, already in output | 67,069 | 48,530 |
-| Semantic checks passed | 102/104 | 97/104 |
-| Structural checks passed | 126/126 | 126/126 |
-| Updates needing a retry | 0/198 | 7/198 |
-| Updates still rejected after retry | 0/198 | 0/198 |
-
-Output fell 30.1% and uncached input was essentially unchanged (-0.6%), including
-all retry costs. The quality difference is material to adoption: line misses
-included TODO intent/coverage, failure attribution, a defining constraint and
-episode continuity. All replays completed after the eval's single correction
-attempt. The daemon instead rejects malformed proposals atomically and reseeds
-its next scheduled request; it does not immediately retry. The fixed rubric
-was not relaxed. The optional start marker handles leading prose; it cannot
-repair malformed operations or semantic mistakes. No preambles preceded the
-marker in these two final runs, so that tolerance is covered by parser tests.
-
-`format_report.py` verifies equal evidence, checkpoints, rubric and model/effort
-before comparing receipts. Reproduce a pair with prefixes whose directories end
-in `-real`, `-synthetic`, and `-focus` (the focus replay uses `--batch 4`):
+The line updater is the default within the opt-in plan feature. Set
+`CORGI_LONG_PLAN_LINES=0` to compare the older compact JSON updater. To try it in
+a separate Corgi environment:
 
 ```sh
-bun evals/long_plan/run.ts --manifest CASES.json --lines --effort low \
-  --timeout-ms 240000 --out LINE_PREFIX-real
-python3 evals/long_plan/format_report.py JSON_PREFIX LINE_PREFIX comparison.json
+CORGI_LONG_PLAN=1 ./go.ts --env long-plan-lines --no-kill
 ```
 
-Earlier symbol-opcode and prompt trials, including rejected responses and
-incomplete production-window runs, remain under `line-format/v1-*` through
-`v5-*` and `line-format/live-*`. These development trials are separate from the
-final-run comparison; private transcripts are not committed.
+#### Cost accounting
 
-The line-format production-window run (`line-format/live-v6`) completed all
-52 updates without rejection. It uses the same frozen observations as the JSON
-control (`opt-v14-live`), the same low effort and the same accepted-state cache:
+Use API-equivalent dollars, not the sum of input and output tokens. Rates checked
+2026-11-08 against [Anthropic's pricing](https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing):
 
-| Inference tokens, 52 updates | Compact JSON | Operation lines |
-| --- | ---: | ---: |
-| Input excluding cache reads | 61,808 | 57,500 |
-| Cached input | 663,463 | 562,938 |
-| Output, including thinking | 18,845 | 9,159 |
-| Thinking, already in output | 12,421 | 5,920 |
-| Total input plus output | 744,116 | 629,597 |
+| Haiku 5.5, standard/global | USD per million tokens, prompt ≤100k |
+| --- | ---: |
+| Regular input | $0.10 |
+| 5-minute cache write | $0.125 |
+| 1-hour cache write | $0.20 |
+| Cache read | $0.01 |
+| Output, including thinking | $0.50 |
 
-Output fell 51.4%, uncached input 7.0%, and total tokens 15.4%. These are
-observations from one matched production-window run per format; cache availability
-and model sampling vary. The broader quality replay below uses a different
-batch size and must not be combined with these absolute totals.
+All measured writes used the 1-hour rate. Above 100k input tokens **in one API
+request**, including cache reads and writes, all these rates are 5×. The calculator
+prices individual iterations when needed, not the sum of several requests as one
+long prompt. A receipt with incomplete iteration details can be priced exactly if
+its aggregate input is below 100k; otherwise the calculator refuses to guess.
+Unsupported speed/service tiers and missing cache TTL breakdowns also fail closed.
+
+Final provider receipts are authoritative. Partial assistant usage, cumulative
+`modelUsage`, and the receipt's iteration details are not added again. Thinking
+is a subset of output. Uncached input includes cache writes. Older audit files
+called regular input alone “uncached”; `window_cost.py` derives all categories
+from the underlying receipts consistently. Some JSON CLI receipts omit earlier
+formatting iterations while retaining their token totals, so the observed number
+of extra formatting calls is only a lower bound. These are API list-price
+equivalents, not claims about Claude Code subscription billing.
+
+#### Measured result: revised line updater
+
+The selected v20 prompt keeps the fuller policy, adds concrete failure/attribution
+examples, and uses the shared cache and correction implementation. Two matched
+runs per format cover 198 updates over four real conversations and seventeen
+synthetic/focus cases. The audited rubric is identical for every format.
+
+| Format, two runs | Uncached input | Cached input | Output incl. thinking | Thinking subset | API-equivalent USD | Semantic checks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Compact JSON, low effort | 641,153 | 5,379,470 | 172,918 | 134,137 | $0.28135 | 101/106 |
+| Previous lines, v6 | 637,104 | 4,917,168 | 120,918 | 97,059 | $0.25034 | 96/106 |
+| Revised lines, v20 | 609,559 | 4,923,530 | 159,279 | 138,128 | $0.25075 | 103/106 |
+
+Against JSON, revised lines use 4.9% less uncached input and 7.9% less output,
+and cost 10.9% less. Against the earlier line prototype, cost is effectively flat
+(+0.2%) while semantic checks improve and rejected first attempts fall from seven
+to two. All corrections succeeded. The revised format spends more thinking than
+the fragile prototype; shrinking that number alone was not the objective.
+Thinking accounts for 86.7% of revised output in these larger replay batches.
+All 126 structural checks pass. The three semantic misses represent two issues:
+a goal subtitle loses the durable objective, and one repeat omits a short-lived
+missing dependency and its recovery. These remain visible failures, not waived
+checks. The historical JSON and v6 line runs each incurred a long-context premium
+request; the revised runs incurred none. Prices include those differences.
+
+The separate production-window benchmark uses exactly 52 bounded windows:
+
+| Updater | Runs | Mean uncached input | Mean cached input | Mean output incl. thinking | Mean API-equivalent USD |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Main: flat activity label | 1 | 26,419 | 340,979 | 8,740 | $0.01305 |
+| Compact JSON plan | 1 | 61,808 | 663,463 | 18,845 | $0.02841 |
+| Previous line plan, v6 | 1 | 57,500 | 562,938 | 9,159 | $0.02170 |
+| Revised line plan, v20 | 2 | 54,330 | 595,259 | 16,320 | $0.02497 |
+
+The revised plan averages 12.1% less cost than JSON here, with 12.1% less uncached
+input and 13.4% less output. It is 15.1% dearer than the earlier line prototype
+on these smaller windows, where neither incurred the long-context premium.
+The flat main updater does a smaller job and remains cheaper. Cache warmth and
+model sampling vary; these are measured workloads, not a universal savings rate.
+
+Additional validation passes all 30 checks on four fixed synthetic conversations
+and all seven checks on the 742-event historical Codex conversation. The latter
+needed three successful corrections (recovery evidence, immutable failure state,
+and title length). Across these validations and the repeated broad suite, all
+258 updates were accepted, with five corrections and no dropped update. The
+production-window replays add 104 accepted updates without corrections.
+
+Reproducible summaries are retained locally in
+`line-format/final-repeated-comparison.json` and `line-format/v20-window-costs.json`.
+Runs are `v20-{1,2}-{real,synthetic,focus}`, `v20-holdout`, `v20-headless`, and
+`live-v20{,-repeat}` beneath `evals/results/long-plan/line-format/`. Failed earlier
+trials remain there too. Parser/coverage guarantees are deterministic; semantic
+classification is measured by the checks above and is not perfect.
+
+#### Eval quality and reproducibility
+
+The broad corpus has four historical conversations and seventeen synthetic/focus
+cases, at 99 checkpoints. Production-window comparisons use a separate set of 52
+smaller windows from four real conversations. Keep their absolute token totals
+separate. Additional validation includes a 742-event historical Codex handoff
+prototype and four new synthetic cases, including 102 events of ordinary CSV
+implementation with no setbacks. Raw histories, outputs and receipts stay in
+ignored `evals/results/long-plan/`.
+
+The rubric was audited against actual source events. The website's missing-Pillow
+failure (76–77), recovered by ffmpeg (80–81), is a real second setback. The handoff
+implementation check now targets the write at 272 rather than the read at 237;
+notification/report focus targets the actual PR operations at 379 and 387 rather
+than the earlier remote check at 374. Animation scope can be present in the
+episode title or subtitle: repeating “heart” in both is not a quality requirement.
+The dictionary topic matcher accepts “held-out” as well as “holdout”. A goal can
+mention worktree round-trips while correctly describing lost handoff state; that
+word alone no longer fails the outcome check. The amended
+rubric adds an explicit recovery check, for 116 assertions (53 semantic and 63
+structural). Original reports are preserved; `report.ts` rescores every control
+and candidate equally into `review.json`.
+
+The original v6 line experiment reduced output but missed more semantic checks
+and needed seven retries across two runs. Those results remain under
+`line-format/v6-{1,2}-*`; they are not the revised protocol's results. Intermediate
+prompt, cache and thinking trials are retained too, including incomplete runs.
+
+```sh
+# Broad replay; use --batch 4 for focus_probe.json.
+bun evals/long_plan/run.ts --manifest CASES.json --lines --cache-budget \
+  --effort low --timeout-ms 240000 --out LINE_PREFIX-real
+# Rescore real runs with audited labels, preserving original reports.
+bun evals/long_plan/report.ts evals/long_plan/efficiency_checks.json REAL_RUN_DIR
+# Summarize matching -real/-synthetic/-focus prefixes; --review uses review.json.
+python3 evals/long_plan/format_report.py JSON_PREFIX LINE_PREFIX comparison.json --review
+# Price matching production windows, including rejected attempts.
+python3 evals/long_plan/window_cost.py MAIN_DIR JSON_PLAN_DIR LINE_PLAN_DIR
+python3 evals/long_plan/pricing_test.py
+```
 
 The matched benchmark replays 52 production-sized observation windows from four
 real conversations: zstd, website, installer and handoff. It is a controlled
@@ -470,12 +555,13 @@ that it still rejects an invented failure at the grep result. Original reports
 remain intact; review.json records these explicitly reviewed scorer changes.
 
 ```sh
-# Compare the default JSON updater with frozen production-sized windows.
+# Compare the compact JSON control with frozen production-sized windows.
 bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY
 # Replay main's flat summarizer on its corresponding frozen observations.
 bun evals/long_plan/main_efficiency.ts BASELINE_DIRECTORY MAIN_RESULTS_DIRECTORY
-# Experimental formats; default run.ts matches production.
-bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --lines
+# The line configuration matches the opt-in production plan updater.
+# Runners retain JSON as their default control; pass these flags explicitly.
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --lines --cache-budget
 bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --json-ops
 bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --stateless
 bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --legacy

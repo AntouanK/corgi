@@ -26,6 +26,7 @@ export type Span = { from: number; to: number; node: string | null; focus?: bool
 export type Patch = { nodes: Node[]; spans: Span[] };
 export type State = { nodes: Node[]; spans: Span[]; through: number };
 export const empty = (): State => ({ nodes: [], spans: [], through: 0 });
+export const maxEvidence = 64;
 
 export const policy = `Hierarchy is exactly goal -> episode -> step. Nodes have stable short IDs, a parent ID (null for goals), kind, title, subtitle, state, evidence (supporting event IDs).
 A goal is a user outcome, such as reliable cross-platform CI. An episode is a coherent subproblem that can span reading, edits, tests and commits, such as repairing a rebase, making macOS builds pass, or fixing stale push state. A step is a meaningful activity within that episode. Repeated searches, edits, test polls or individual commands do not each deserve a step.
@@ -182,7 +183,7 @@ export function apply(state: State, raw: string, events: Event[]): { state: Stat
     if (
       !Array.isArray(n.evidence) ||
       n.evidence.length < 1 ||
-      n.evidence.length > 4 ||
+      n.evidence.length > maxEvidence ||
       n.evidence.some(id => !Number.isInteger(id) || id < 1 || id > through)
     )
       throw Error("InvalidEvidence");
@@ -209,16 +210,15 @@ export function apply(state: State, raw: string, events: Event[]): { state: Stat
         /[\x00-\x1f\x7f-\x9f]/.test(b.detail) ||
         !Array.isArray(b.evidence) ||
         !b.evidence.length ||
-        b.evidence.length > 4 ||
+        b.evidence.length > maxEvidence ||
         b.evidence.some(id => !Number.isInteger(id) || id < 1 || id > through)
       )
         throw Error("InvalidBump");
       if (old?.bump) {
         if (node.bump.kind !== old.bump.kind) throw Error("ChangedBumpKind");
         if (!node.bump.evidence.includes(old.bump.evidence[0])) repairs.push(`retained setback evidence: ${node.id}`);
-        node.bump = { ...node.bump, evidence: [...new Set([old.bump.evidence[0], ...node.bump.evidence])].slice(-4) };
-        // Always retain the original setback if the model filled all four slots with recovery evidence.
-        if (!node.bump.evidence.includes(old.bump.evidence[0])) node.bump.evidence[0] = old.bump.evidence[0];
+        node.bump = { ...node.bump, evidence: [...new Set([old.bump.evidence[0], ...node.bump.evidence])] };
+        if (node.bump.evidence.length > maxEvidence) throw Error("InvalidEvidence");
       }
       if (
         old?.bump?.state === "open" &&

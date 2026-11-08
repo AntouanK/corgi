@@ -27,7 +27,7 @@
         "kind": "topic",
         "event": 52,
         "level": "step",
-        "pattern": "dict|train|hold|captur|corpus|fixture|record"
+        "pattern": "dict|train|held.out|hold|captur|corpus|fixture|record"
       }
     ]
   },
@@ -49,9 +49,9 @@
         "state": "resolved"
       },
       {
-        "name": "one real problem across ordinary animation work",
+        "name": "missing image dependency and failed tests are the two real setbacks",
         "kind": "bump_count",
-        "count": 1
+        "count": 2
       },
       {
         "name": "failed test attempt is preserved after successful retry",
@@ -63,10 +63,17 @@
       },
       {
         "name": "episode keeps the animation objective",
-        "kind": "subtitle",
+        "kind": "label",
         "event": 36,
         "level": "episode",
         "pattern": "heart|logo|animat"
+      },
+      {
+        "name": "missing Pillow recovered with ffmpeg",
+        "kind": "bump",
+        "event": 77,
+        "category": "environment",
+        "state": "resolved"
       }
     ]
   },
@@ -96,7 +103,7 @@
         "name": "background completion does not revisit tests",
         "kind": "focus",
         "event": 383,
-        "target": 374,
+        "target": 379,
         "level": "step"
       },
       {
@@ -124,22 +131,22 @@
         "kind": "subtitle",
         "event": 271,
         "level": "goal",
-        "pattern": "^(?!.*worktree).*(handoff|reload|daemon|workspace|restor)"
+        "pattern": "(handoff|reload|daemon|workspace|restor)"
       },
       {
         "name": "final PR report does not resume implementation",
         "kind": "focus",
         "event": 389,
-        "target": 374,
+        "target": 387,
         "level": "step"
       },
       {
         "name": "implementation is named as implementation, not tracing",
         "kind": "topic",
-        "event": 237,
+        "event": 272,
         "level": "step",
         "pattern": "implement|fix|patch|edit",
-        "at": 261
+        "at": 285
       }
     ]
   },

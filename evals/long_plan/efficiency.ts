@@ -2,29 +2,36 @@
 // Compare against recorded production-sized requests at exactly the same checkpoints.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Pool } from "../../src/inference/harness";
+import { Pool, type Request } from "../../src/inference/harness";
+import { Tokens } from "../../src/usage/live";
 import * as plan from "../../src/activity/plan";
 import * as roadmap from "../../src/activity/roadmap";
 import * as lines from "../../src/activity/plan_lines";
 import * as compact from "../../src/activity/plan_protocol";
-import { Audit } from "./usage_audit";
-import { Context } from "../../src/activity/plan_context";
+import { Audit, combine } from "./usage_audit";
+import { Context, priceBudget } from "../../src/activity/plan_context";
 import { Conversation } from "./cached";
 
 type Usage = { input: string; cached_input: string; output: string };
 type Call = { through: number; input: roadmap.Input; raw: string; usage: Usage };
 const args = process.argv.slice(2),
+  cacheTurnsAt = args.indexOf("--cache-turns"),
+  cacheTurns = cacheTurnsAt < 0 ? priceBudget.turns : Number(args[cacheTurnsAt + 1]),
   cached = args.includes("--cached"),
   ops = !args.includes("--legacy") && !cached,
   plain = args.includes("--plain"),
   wire = args.includes("--lines") ? lines : compact,
   reuse = ops && !args.includes("--stateless"),
   [directory, destination] = args.filter(
-    arg => !["--cached", "--legacy", "--plain", "--stateless", "--json-ops", "--lines"].includes(arg),
+    (arg, i) =>
+      i !== cacheTurnsAt &&
+      (cacheTurnsAt < 0 || i !== cacheTurnsAt + 1) &&
+      !["--cached", "--legacy", "--plain", "--stateless", "--json-ops", "--lines", "--cache-budget"].includes(arg),
   );
+if (!Number.isInteger(cacheTurns) || cacheTurns < 1 || cacheTurns > 32) throw Error("InvalidCacheTurns");
 if (!directory || !destination)
   throw Error(
-    "Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain] [--lines | --json-ops]",
+    "Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain] [--lines | --json-ops] [--cache-budget] [--cache-turns N]",
   );
 const json = (value: unknown) => JSON.stringify(value, (_, v) => (typeof v === "bigint" ? String(v) : v), 2);
 fs.mkdirSync(destination, { recursive: true });
@@ -43,7 +50,7 @@ for (const file of fs
     }),
     road = new roadmap.Roadmap(),
     session = new Conversation(),
-    context = new Context(wire),
+    context = new Context(wire, args.includes("--cache-budget") ? { ...priceBudget, turns: cacheTurns } : null),
     calls: unknown[] = [],
     audit = new Audit();
   const save = (complete: boolean) =>
@@ -51,6 +58,8 @@ for (const file of fs
       output,
       json({
         complete,
+        cache_budget: args.includes("--cache-budget"),
+        cache_turns: cacheTurns,
         model: baseline.model,
         case: baseline.case,
         baseline: path.resolve(directory, file),
@@ -89,14 +98,24 @@ for (const file of fs
             ? {
                 instructions: wire.instructions,
                 schema: plain ? null : wire.schema,
-                content: compact.content(input),
+                content: wire.encode(compact.envelope(input)),
               }
             : cached
               ? session.prepare(input)
               : { instructions: plan.instructions, schema: plan.schema, content: roadmap.content(input) },
         started = Date.now();
       if (plain && ops) request.schema = null;
-      const response = await pool.infer(request);
+      let response = await pool.infer(request);
+      const attempts = [
+        {
+          raw: response.text(),
+          usage: response.usage,
+          audit: audit.take(response.usage),
+          request,
+          fresh: response.fresh,
+          correction: "",
+        },
+      ];
       const call = {
         through: previous.through,
         input,
@@ -104,15 +123,39 @@ for (const file of fs
         fresh: response.fresh,
         raw: response.text(),
         usage: response.usage,
-        audit: audit.take(response.usage),
+        audit: combine(attempts.map(a => a.audit)),
+        attempts,
         elapsed_ms: Date.now() - started,
       };
       calls.push(call);
       save(false);
+      if (reuse && wire === lines) {
+        try {
+          wire.apply(input, call.raw);
+        } catch (error) {
+          const correction = (error as Error).message,
+            retry: Request = context.retry(input, call.raw, correction, response.usage);
+          response = await pool.infer(retry);
+          attempts.push({
+            raw: response.text(),
+            usage: response.usage,
+            audit: audit.take(response.usage),
+            request: retry,
+            fresh: response.fresh,
+            correction,
+          });
+          call.raw = response.text();
+          call.usage = new Tokens();
+          for (const attempt of attempts) call.usage.add(attempt.usage);
+          call.audit = combine(attempts.map(a => a.audit));
+          call.elapsed_ms = Date.now() - started;
+          save(false);
+        }
+      }
       if (!road.apply(input, ops ? JSON.stringify(wire.apply(input, call.raw).patch) : call.raw))
         throw Error("PlanApplyFailed");
       if (cached) session.accept(input, road.state);
-      if (reuse) context.accept(input, road.state);
+      if (reuse) context.accept(input, road.state, response.usage);
       console.log(`${baseline.case} ${calls.length}/${baseline.calls.length}`);
     }
     save(true);
