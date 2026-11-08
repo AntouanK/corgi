@@ -7,8 +7,9 @@ const code = (values: Record<string, string>, value: string) => Object.keys(valu
 
 export function describeInput(
   evidence = "Input evidence rows: [event_id,turn,kind,text]. These preserve the original text; timestamps and source line numbers are irrelevant.",
+  tree = "Input tree rows: [id,parent,kind,title,subtitle,state,evidence,bump?]. kind g=goal,e=episode,s=step. State p=planned,a=active,d=done,f=failed,b=blocked,x=abandoned. A bump is [kind,state,detail,evidence].",
 ) {
-  return `Input tree rows: [id,parent,kind,title,subtitle,state,evidence,bump?]. kind g=goal,e=episode,s=step. State p=planned,a=active,d=done,f=failed,b=blocked,x=abandoned. A bump is [kind,state,detail,evidence].
+  return `${tree}
 ${evidence} support is older evidence, events is new evidence. Assign exactly range[0] through range[1]. tree is the COMPLETE authoritative accepted state. tree_updates instead upserts rows by ID; unmentioned rows are unchanged. Accepted state overrides previous proposals. Goals, episodes and open bumps are repeated in updates so constraints and unresolved problems remain explicit. Retain previously supplied support until a complete tree resets it.
 focus is the server's last foreground step. Keep it for continuity until actual new work changes activity. A final report belongs to the work being reported; mentioning an older implementation or test in a PR report does not resume it. Attribute genuinely late results to their original step with focus 0.
 `;
@@ -86,6 +87,7 @@ export const focus = (input: Input) =>
 export type Envelope = {
   tree?: ReturnType<typeof node>[];
   tree_updates?: ReturnType<typeof node>[];
+  accepted?: ReturnType<typeof node>[];
   support: ReturnType<typeof event>[];
   events: ReturnType<typeof event>[];
   focus: string | null;

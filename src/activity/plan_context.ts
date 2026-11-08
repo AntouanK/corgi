@@ -12,7 +12,7 @@ function hint(reason: string) {
     case "RewrittenFailure":
       return "A failed STEP stays failed permanently, including one marked failed earlier in this response. Remove active/done state edits on that attempt. Use resolve for recovery; create a NEW step for the successful retry and assign its work there.";
     case "InvalidEvidence":
-      return "Every response that edits nodes needs a cite line with positive observed event IDs, never future events, tool IDs or hashes. Prefer 1-4 directly supporting IDs. Put the first cite immediately after BEGIN_PLAN.";
+      return "Use one positive observed event ID for each work/note/skip endpoint. Do not output citations or event-ID lists for edits.";
     case "InvalidSubtitle":
     case "InvalidBump":
       return "Every new node needs a nonempty subtitle. Subtitles and setback details must be one line, at most 120 characters; aim below 90.";
@@ -101,7 +101,14 @@ export class Context {
 
   retry(input: Input, rejected: string, reason: string, usage: Pick<Tokens, "input" | "output">): Request {
     const correction = `The previous response was rejected atomically: ${reason}. ${hint(reason)} NONE of its edits or assignments were applied. accepted lists the unchanged authoritative nodes; never recreate those IDs. Replace the ENTIRE response for events ${input.events[0].id} through ${input.events.at(-1)!.id}, using the original evidence still in this conversation. Return only the corrected operations.`,
-      content = JSON.stringify({ correction, accepted: input.state.nodes.map(protocol.node) }),
+      content = this.encode({
+        correction,
+        accepted: input.state.nodes.map(protocol.node),
+        range: [input.events[0].id, input.events.at(-1)!.id],
+        focus: protocol.focus(input),
+        support: [],
+        events: [],
+      }),
       fresh = this.encode({ ...protocol.envelope(input), correction, rejected });
     this.turns++;
     this.used = usage.input + usage.output;

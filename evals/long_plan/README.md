@@ -293,7 +293,6 @@ test verifies that this changes no event IDs, kinds, turns or text.
 
 ```text
 BEGIN_PLAN
-cite 16,19
 new s3 e1 done Fix import and rerun suite
 sub s3 Replace removed installer import, then rerun the suite serially
 resolve s1
@@ -306,7 +305,6 @@ attempt stays failed. Every new node needs `new` and `sub`.
 
 | Command | Meaning |
 | --- | --- |
-| `cite 12,14` | Set supporting event IDs for edits |
 | `new id parent state title` | Create a node; parent `-` means goal |
 | `sub id subtitle` | Set a subtitle |
 | `title id title` | Set a title |
@@ -318,15 +316,18 @@ attempt stays failed. Every new node needs `new` and `sub`.
 | `skip end_id` | Cover events with no grounded work |
 
 States are `planned`, `active`, `done`, `failed`, `blocked`, and `abandoned`.
-Unchanged activity usually needs only `work` or `note`. The first `cite` supplies
-the response's default evidence, including edits preceding it; subsequent `cite`
-lines change evidence for following edits. The prompt encourages putting it first
-and using 1–4 relevant IDs. Lists up to 64 retain all supplied IDs, rather than
-silently dropping provenance. No citation carries into the next response.
+Unchanged activity usually needs only `work` or `note`. The model emits no
+citations. The server attaches all observed event IDs from the current batch as
+internal provenance and omits those lists from the state sent to the model.
+Event IDs remain in source headers and attribution endpoints, where they are
+needed for token ownership. Internal provenance is now the update's context,
+not a claim that the model selected a minimal set of supporting events.
 
-The shared reducer validates identity, hierarchy, observed evidence, immutable
-failed attempts, recovery evidence and complete event coverage before applying
-anything. Missing citations and contradictory commands reject the entire patch.
+The shared reducer still validates identity, hierarchy, bounded provenance,
+immutable failed attempts and complete event coverage before applying anything.
+Recovery requires a fresh observation batch; whether that batch actually proves
+recovery remains a classification judgment. Contradictory commands reject the
+entire patch. The old `cite` command is not part of the new grammar.
 A leading prose preamble before `BEGIN_PLAN` is tolerated. A lone trailing marker,
 an exact adjacent duplicate attribution, redundant `through`, and an exact repeat
 of an accepted creation are safe syntax normalizations; each is recorded in the
@@ -358,7 +359,7 @@ shorter policy were rejected after semantic regressions. Examples also cover two
 distinct failures inside one batch and substantive explanations that announce
 future work.
 
-The line updater is the default within the opt-in plan feature. Set
+The no-citation line updater is the default within the opt-in plan feature. Set
 `CORGI_LONG_PLAN_LINES=0` to compare the older compact JSON updater. To try it in
 a separate Corgi environment:
 
@@ -395,9 +396,58 @@ formatting iterations while retaining their token totals, so the observed number
 of extra formatting calls is only a lower bound. These are API list-price
 equivalents, not claims about Claude Code subscription billing.
 
+#### Removing model-written citations
+
+The current line format removes `cite` and omits provenance arrays from cached
+model state and correction messages. The application attaches the observed batch
+internally. No other classification policy or thinking target was changed.
+The complete output example also no longer repeats a subtitle just to demonstrate
+a change of citation scope.
+
+Two matched runs of 52 production windows give:
+
+| Format | Runs | Mean uncached input | Mean output incl. thinking | Mean API-equivalent USD |
+| --- | ---: | ---: | ---: | ---: |
+| Original line format, v6 | 1 completed reference | 57,500 | 9,159 | $0.02170 |
+| Revised lines with citations, v20 | 2 | 54,330 | 16,320 | $0.02497 |
+| Lines without citations | 2 | 53,687 | 15,480 | $0.02422 |
+
+Removing citations saved 3.0% cost and 5.1% output in these windows, but remains
+11.6% dearer than the original successful line run. Thinking still accounts for
+81.9% of output. The new repeat of the original implementation, from exact commit
+`38dca8f0`, stopped after 35 accepted updates when the next title was invalid.
+Its 36 requests cost $0.01734 through failure; that incomplete workload is not
+included in the full-window cost table or normalized into a cheaper estimate.
+
+Across two broad replays (198 updates), the comparison is:
+
+| Format | Uncached input | Cached input | Output incl. thinking | Thinking subset | API-equivalent USD | Semantic checks | Corrected rejections |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| With citations, v20 | 609,559 | 4,923,530 | 159,279 | 138,128 | $0.25075 | 103/106 | 2 |
+| Without citations | 642,375 | 4,987,090 | 143,743 | 124,892 | $0.25018 | 102/106 | 3 |
+
+Both completed all 198 updates and passed all 126 structural checks. Output fell
+9.8%, but uncached input rose 5.4%, leaving cost effectively flat (-0.2%). The
+one-check quality difference does not establish a clear quality advantage for
+either format. Removing citations simplifies the protocol; it is not a material
+overall cost win. Batch provenance also gives up precise per-edit source links.
+The no-citation failures concern a missed brief dependency failure, an extra
+setback, and a rebase folded into the repair episode. Both additional runs of the fixed synthetic suite miss the Unicode constraint
+in an episode subtitle (29/30 checks each); one run also needs a successful
+assignment correction. The 742-event historical replay passes all seven checks
+and accepts all 46 updates after two corrections. Across the broad suite, the
+long replay and both additional synthetic runs, all 272 updates are accepted
+after six corrections. These results retain every miss and rejected attempt.
+
+Artifacts are `nocite-{1,2}-{real,synthetic,focus}`, `live-nocite-{1,2}`,
+`nocite-holdout{,-repeat}`, `nocite-headless`, `nocite-repeated-comparison.json`, and
+`nocite-window-costs.json` under `evals/results/long-plan/line-format/`.
+The failed original control and its price through failure are retained in
+`live-v6-control-repeat/`. All cost figures include rejected attempts and thinking.
+
 #### Measured result: revised line updater
 
-The selected v20 prompt keeps the fuller policy, adds concrete failure/attribution
+The previously selected v20 prompt keeps the fuller policy, adds concrete failure/attribution
 examples, and uses the shared cache and correction implementation. Two matched
 runs per format cover 198 updates over four real conversations and seventeen
 synthetic/focus cases. The audited rubric is identical for every format.

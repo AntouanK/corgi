@@ -152,7 +152,6 @@ test.each([
     response.set(
       wire === lines
         ? `BEGIN_PLAN
-cite ${content.range[1]}
 state s done
 work ${content.range[1]} ${invalid ? "missing" : "s"}`
         : JSON.stringify({
@@ -187,7 +186,9 @@ work ${content.range[1]} ${invalid ? "missing" : "s"}`
     expect((await backend.infer(flat, "one", "activity:1", source, false, road)).patch).toBeTruthy();
     const afterRejection = requests[wire === lines ? 3 : 2];
     expect(afterRejection.conversation).not.toBe(requests[1].conversation);
-    expect(JSON.parse(afterRejection.content.split("\n")[0]).tree).toEqual(road.state.nodes.map(protocol.node));
+    expect(JSON.parse(afterRejection.content.split("\n")[0]).tree).toEqual(
+      road.state.nodes.map(protocol.node).map(row => (wire === lines ? row.slice(0, 6) : row)),
+    );
   } finally {
     backend.close();
   }
@@ -202,9 +203,7 @@ test("line corrections reuse cached evidence and apply only the valid replacemen
     requests.push(request);
     const response = new Response();
     response.set(
-      requests.length === 1
-        ? "BEGIN_PLAN\ncite 2\nstate s done\nwork 2 missing"
-        : "BEGIN_PLAN\ncite 2\nstate s done\nwork 2 s",
+      requests.length === 1 ? "BEGIN_PLAN\nstate s done\nwork 2 missing" : "BEGIN_PLAN\nstate s done\nwork 2 s",
     );
     return response;
   };
@@ -219,8 +218,13 @@ test("line corrections reuse cached evidence and apply only the valid replacemen
     );
     expect(requests).toHaveLength(2);
     expect(requests[1].conversation).toBe(requests[0].conversation);
-    expect(JSON.parse(requests[1].content).correction).toContain("NONE");
-    expect(JSON.parse(requests[1].fresh_content!.split("\n")[0]).tree).toEqual(road.state.nodes.map(protocol.node));
+    expect(JSON.parse(requests[1].content.split("\n")[0]).correction).toContain("NONE");
+    expect(JSON.parse(requests[1].fresh_content!.split("\n")[0]).tree).toEqual(
+      road.state.nodes.map(protocol.node).map(row => row.slice(0, 6)),
+    );
+    expect(JSON.parse(requests[1].content.split("\n")[0]).accepted).toEqual(
+      road.state.nodes.map(protocol.node).map(row => row.slice(0, 6)),
+    );
     expect(result.decision?.label?.text()).toBe("Check offsets");
     expect(plan.apply(road.state, result.patch!, road.events).state.through).toBe(2);
     expect(road).toEqual(before);

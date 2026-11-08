@@ -156,7 +156,6 @@ for await (const line of createInterface({ input: process.stdin })) {
         !schema && !claudeSchema
           ? [
               "BEGIN_PLAN",
-              `cite ${to}`,
               ...additions.flatMap(n => [
                 `new ${n.id} ${n.parent ?? "-"} ${n.state} ${n.title}`,
                 `sub ${n.id} ${n.subtitle}`,
