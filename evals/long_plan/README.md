@@ -66,9 +66,10 @@ resuming a task appends a visit; **↩** appears once on a returned episode, not
 every repeated child. Earlier visits stay in place. Consecutive work and neutral
 events do not create extra visits. Episode rows group consecutive
 visits to that episode and show their combined cost. Within that block, every
-step ID has one row, in first-seen order, accumulating its visits’ tokens, calls
-and cached input. Focus moves between these existing rows without reordering
-them. Returning from a different episode starts a new block with separate costs;
+step ID has one row, accumulating its visits’ tokens, calls and cached input.
+Steps are ordered by their latest foreground visit: resuming work moves its row
+to the bottom. Pausing or completing a turn preserves that order, as do late
+results and usage receipts. Returning from a different episode starts a new block with separate costs;
 totals still count the whole conversation once. Late receipts stay with their
 generating visit. Problems appear on the visit where they arose, with recovery
 updating that explanation. Sidebar branches connect steps and their explanations. Two or more hidden steps get a “… N more” row instead of a
@@ -109,8 +110,8 @@ bun evals/long_plan/check_visits.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 ```
 
 `check_visits.ts` checks chronological prefixes, unique steps within episode
-blocks, stable displayed order, raw and displayed token/cache/call conservation,
-and visible active work within the latest episode at several heights, without
+blocks, stable closed blocks, step order by latest work, raw and displayed
+token/cache/call conservation, and active work at the bottom at several heights, without
 model calls.
 Before the focus correction, the recorded development sessions and synthetic
 probes passed the earlier accounting checks at 276 accepted checkpoints, despite 122 inferred
@@ -191,8 +192,9 @@ the reducer still rejects rewritten history. Resuming a completed replay makes
 no additional model calls. Flat-baseline resume is not supported.
 
 Stored focus follows the last foreground work span; passive spans retain attribution without moving focus. Null/unassigned events and
-pauses retain focus; new work in another episode moves it. Returning to older work keeps it visible without changing episode or step
-order. Focus survives reload and cold recovery and
+pauses retain focus; new work in another episode moves it. Returning to an older
+step moves its combined row to the bottom of the current episode. Returning
+after a different episode appends a block. Focus survives reload and cold recovery and
 defaults to null in old snapshots. Play icons require active state: a completed
 episode stays in the tail but loses its play icon and dims. In the rebase
 regression, checkpoints 1, 2 and 3 retain the same episode position; the middle
@@ -268,6 +270,15 @@ with identical titles. Returning after a different episode retains a separate
 block. All 337 recorded checkpoints (the newer set and previous corpus) pass the
 expanded ordering, uniqueness and conservation checks. No new model calls were
 needed for this deterministic display correction.
+
+The handoff replay also exercises resumed work at event 51: the pending-usage
+trace moves below the activity-tracker trace while keeping its accumulated cost.
+The overhead episode's on/off/on at events 198, 201 and 204 reflects a real pause:
+Claude finishes its report at 22:55:38 UTC, then the user's next question arrives
+at 23:09:40. Provider completion clears the play markers; the classifier also
+marks the measurement work done based on that report, then reopens the episode
+for the follow-up check. Checkpoints have uneven time gaps, so adjacent slider
+positions do not imply continuous activity.
 
 To capture a replay with terminal font shaping and box drawing:
 

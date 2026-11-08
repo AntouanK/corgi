@@ -53,11 +53,12 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
       const latest = i === view.visits.length - 1;
       block.heading.counts = roadmap.add(block.heading.counts!, visit.counts);
       block.heading.current = running !== false && latest && episode.id === view.focus && episode.state === "active";
-      let child = block.children.find(r => r.kind === "node" && r.node.id === step.id);
-      if (!child) {
-        child = { kind: "node", node: { ...step, bump: null }, depth: 1, counts: roadmap.zero(), current: false };
-        block.children.push(child);
-      }
+      const index = block.children.findIndex(r => r.kind === "node" && r.node.id === step.id);
+      const child: Row =
+        index < 0
+          ? { kind: "node", node: { ...step, bump: null }, depth: 1, counts: roadmap.zero(), current: false }
+          : block.children.splice(index, 1)[0];
+      block.children.push(child);
       if (child.kind === "node") {
         child.counts = roadmap.add(child.counts!, visit.counts);
         child.current = running !== false && latest && currentStep(view, step);
@@ -71,6 +72,7 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
   const step = view.nodes.find(n => n.id === view.focus_step);
   return view.nodes
     .filter(n => n.kind === "episode")
+    .sort((a, b) => Number(a.id === view.focus) - Number(b.id === view.focus))
     .map(episode => {
       const heading: Block["heading"] = {
         kind: "node",
@@ -80,6 +82,7 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
       };
       const children: Row[] = view.nodes
         .filter(n => n.parent === episode.id)
+        .sort((a, b) => Number(a.id === view.focus_step) - Number(b.id === view.focus_step))
         .map(node => ({ kind: "node", node, depth: 1, current: running === false ? false : undefined }));
       if (
         running !== false &&
@@ -114,7 +117,7 @@ export function tail(view: roadmap.Snapshot, count: number, running: boolean | n
         (r.current ?? (currentStep(view, r.node) || (r.node.id === view.focus && r.node.state === "active")))),
   );
   let rows: Row[] = [];
-  // Keep current work visible without changing the order of any history rows.
+  // Keep the latest work and its episode visible in short terminals.
   for (let start = all.length; start >= 0; start--) {
     const selected = new Set([...all.slice(start), ...pinned]);
     let candidate: Row[] = [];

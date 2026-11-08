@@ -23,7 +23,7 @@ for (const directory of process.argv.slice(2)) {
       );
     const activity = histories.activity(data);
     let previous: roadmap.Visit[] = [],
-      previousRows: string[] = [],
+      previousBlocks: string[][] = [],
       checked = 0;
     for (const call of calls) {
       if (!call.state) continue;
@@ -52,20 +52,42 @@ for (const directory of process.argv.slice(2)) {
       const displayed = planView
         .tail(view, view.visits.length * 3 + view.nodes.length + 1, false)
         .rows.filter(r => r.kind === "node");
-      const rowIds = displayed.map(r => r.node.id);
-      check(
-        previousRows.every((id, i) => rowIds[i] === id),
-        "displayed history reordered",
-      );
-      previousRows = rowIds;
-      let children = new Set<string>();
+      const blocks: string[][] = [];
       for (const row of displayed) {
-        if (row.depth === 0) children = new Set();
-        else {
-          check(!children.has(row.node.id), `duplicate step ${row.node.id} within an episode`);
-          children.add(row.node.id);
-        }
+        if (row.depth === 0) blocks.push([row.node.id]);
+        else blocks.at(-1)!.push(row.node.id);
       }
+      check(
+        previousBlocks.slice(0, -1).every((ids, i) => JSON.stringify(ids) === JSON.stringify(blocks[i])),
+        "closed episode block reordered",
+      );
+      previousBlocks = view.visits.length ? blocks : [];
+      const visits: { episode: string; steps: string[] }[] = [];
+      for (const visit of view.visits) {
+        const episode = view.nodes.find(n => n.id === visit.step)!.parent!;
+        if (visits.at(-1)?.episode !== episode) visits.push({ episode, steps: [] });
+        visits.at(-1)!.steps.push(visit.step);
+      }
+      if (visits.length) check(blocks.length === visits.length, "wrong episode block count");
+      blocks.forEach(([episode, ...steps], i) => {
+        check(new Set(steps).size === steps.length, "duplicate step within an episode");
+        if (!visits.length) return;
+        check(episode === visits[i].episode, "episode chronology changed");
+        check(steps.length === new Set(visits[i].steps).size, "missing step within an episode");
+        let lastVisit = -1;
+        for (const step of steps) {
+          const index = visits[i].steps.lastIndexOf(step);
+          check(index > lastVisit, "steps not ordered by latest work");
+          lastVisit = index;
+        }
+      });
+      const runningOrder = planView
+        .tail(view, view.visits.length * 3 + view.nodes.length + 1, true)
+        .rows.flatMap(r => (r.kind === "node" ? [r.node.id] : []));
+      check(
+        JSON.stringify(runningOrder) === JSON.stringify(displayed.map(r => r.node.id)),
+        "provider lifecycle reordered steps",
+      );
       for (const node of view.nodes.filter(n => n.kind === "step")) {
         const sum = displayed
           .filter(r => r.node.id === node.id)
@@ -89,10 +111,7 @@ for (const directory of process.argv.slice(2)) {
             "wrong active visit",
           );
           const current = rows.findIndex(r => r.kind === "node" && r.current && r.depth === 1);
-          check(
-            current < 0 || !rows.slice(current + 1).some(r => r.kind === "node" && r.depth === 0),
-            "active work outside the latest episode",
-          );
+          check(current < 0 || current === rows.length - 1, "active work is not at the bottom");
           const playing = rows.some(r => (r.kind === "node" && r.current) || (r.kind === "pending" && r.active));
           if (running !== null) check(playing === running, "play markers disagree with provider lifecycle");
         }
