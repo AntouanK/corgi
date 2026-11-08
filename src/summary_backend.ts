@@ -51,10 +51,11 @@ export class Backend {
   ) {
     const request = ++this.next_request,
       context = { pid: process.pid, request, source, turn, conversation };
+    // Keep the schema cacheable; plan.apply enforces this batch's event bounds.
     const content = road ? roadmap.content(road) : contract.content({ ...input, history: null }),
       fresh = road ? null : input.history?.length ? contract.content(input) : null,
       instructions = road ? plan.instructions : contract.instructions,
-      schema = road ? plan.schemaFor(road.events[0].id, road.events.at(-1)!.id) : contract.schema;
+      schema = road ? plan.schema : contract.schema;
     log.info("Summary requested", {
       event: "request",
       context,
@@ -92,7 +93,7 @@ export class Backend {
       let decision: { action: contract.Action; label: Text | null };
       if (road) {
         const applied = plan.apply(road.state, response.text(), road.events);
-        patch = response.text();
+        patch = JSON.stringify(applied.patch);
         const id = applied.patch.spans.at(-1)?.node,
           current = applied.state.nodes.find(n => n.id === id);
         decision = { action: "new", label: current ? new Text(current.title) : null };

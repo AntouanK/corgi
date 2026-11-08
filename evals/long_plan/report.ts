@@ -9,7 +9,9 @@ import type { State } from "./plan";
 const refresh = process.argv.includes("--refresh-usage");
 const [manifest, ...directories] = process.argv.slice(2).filter(arg => arg !== "--refresh-usage");
 if (!manifest || !directories.length) throw Error("Usage: bun evals/long_plan/report.ts MANIFEST RUN_DIR [RUN_DIR...]");
-const cases: Case[] = JSON.parse(fs.readFileSync(manifest, "utf8"));
+const cases: (Pick<Case, "id" | "checks"> & Partial<Pick<Case, "label">>)[] = JSON.parse(
+  fs.readFileSync(manifest, "utf8"),
+);
 for (const directory of directories) {
   const original = JSON.parse(fs.readFileSync(path.join(directory, "report.json"), "utf8"));
   const rows: string[] = [],

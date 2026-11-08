@@ -29,12 +29,16 @@ export const empty = (): State => ({ nodes: [], spans: [], through: 0 });
 
 export const instructions = `Maintain a durable road map of a coding agent's work, across turns.
 Return JSON with nodes (only new or changed nodes) and spans (a partition of the NEW event IDs).
+Each input provides either a complete authoritative tree or tree_updates since the preceding input. Apply tree_updates by ID; omitted nodes are unchanged. These are accepted server state, overriding your previous proposals. A full tree replaces your remembered tree. Supporting evidence can be supplied incrementally; retain earlier evidence until a new full tree snapshot. Assign ONLY assign_from through assign_through, never previous events.
 Hierarchy is exactly goal -> episode -> step. Nodes have stable short IDs, a parent ID (null for goals), kind, title, subtitle, state, evidence (supporting event IDs).
 A goal is a user outcome, such as reliable cross-platform CI. An episode is a coherent subproblem that can span reading, edits, tests and commits, such as repairing a rebase, making macOS builds pass, or fixing stale push state. A step is a meaningful activity within that episode. Repeated searches, edits, test polls or individual commands do not each deserve a step.
+A step describes the activity, not the lifetime of a component. Moving from investigation to implementation, verification, or publication requires an appropriately named step, even in the same episode. Never charge implementation or a PR to an old reading/tracing step just because it concerns the same code. Sparse updates save repeated fields, not distinct work. Use each node ID at most once in a patch.
 An episode must be narrower than the goal. Do not create a catch-all 'Implement and validate [goal]' episode and keep adding every future bug to it. When work discovers a distinct blocker with its own cause or affected component, start a sibling episode under the same goal. Keep diagnosis, edits and verification of that ONE blocker together; a different blocker is a different episode even during the same user turn. An earlier broad setup episode can remain blocked or finish while a newly discovered problem gets its own episode. Use fresh tool results and explicit findings to detect this shift, not merely a change of command.
 Keep a goal across user turns when intent continues. 'Again', 'fix it', 'commit', a compaction or a status question does not alone start a goal. Widen an existing goal title when the user expands diagnosis into implementation; a finished repair should not still be titled only 'Diagnose'. Start a goal when the user actually changes the outcome. An explicit pivot such as leaving an unresolved bug to edit unrelated documentation starts a NEW goal and episode; never put unrelated work into the previous failed episode. Leave the old bump open. An early bare request may establish a planned goal but is not evidence that work has started.
 Keep an episode through its diagnose/edit/test/retry cycle. Ordinary git status/diff commands while implementing do not create a Git episode. An explicit multi-step rebase/squash/branch repair does. Reuse episode IDs when returning to the same subproblem, even if previously marked done: a user saying 'again' reopens the existing episode, with a new attempt step. Committing a fix belongs to the episode that produced it. Keep old steps; do not erase failures or superseded work.
+A follow-up requesting measurements or another distinct deliverable can start a sibling episode within the same goal. Continuing the goal does not require continuing its previous episode. When implementation resumes after that side investigation, return to the repair episode with implementation steps.
 Only upsert nodes whose content changed. Never delete, reparent or change the kind of an existing node. Reuse the exact ID for a continuing node. Include ancestors before children when creating them.
+For a NEW node, provide every field. For an EXISTING node, provide id, evidence and ONLY the fields that changed; omitted fields retain their exact stored values. Do not repeat unchanged titles, subtitles, parent, kind, state or bump. If nothing changed, omit the node entirely. A state-only update is {"id":"s1","state":"done","evidence":[7]}. This is the same node, not a new attempt.
 Title: 2-7 words, <=64 characters, concrete and easy to scan. Subtitle: aim for 8-14 words, <=120 characters, one useful fact about the objective, current approach, finding, blocker or result. Finish the sentence; do not fill the character limit. Explain WHY this work matters or WHAT changed. Do not repeat the title, list commands, or say 'working on', 'thinking', 'in progress'. Use agent statements and observable results to summarize intent; never quote raw reasoning.
 Goal and episode subtitles retain the defining constraint or finding as work proceeds. A commit or commit-message edit must not replace the episode's technical explanation with commit bookkeeping; put that bookkeeping on the commit step. When a subproblem is solved, describe what solved it.
 States: planned (announced but not started), active, done (supported success), failed (attempt finished unsuccessfully), blocked (explicit impediment), abandoned (explicitly dropped). A failed test step is failed, never done just because the command ended. A successful command is not proof that a whole goal is complete. A later retry gets a new step, preserving the earlier failure. A new active child reopens its ancestors: update a done goal/episode to active when more work begins under it. Do not invent pending steps; use explicit plans only. Pending steps receive no work spans. Retain unfinished goals when a new request arrives.
@@ -76,7 +80,7 @@ const nodeSchema = {
       ],
     },
   },
-  required: ["id", "parent", "kind", "title", "subtitle", "state", "evidence", "bump"],
+  required: ["id", "evidence"],
   additionalProperties: false,
 };
 export const schema = JSON.stringify({
@@ -139,13 +143,14 @@ export function apply(state: State, raw: string, events: Event[]): { state: Stat
   const changes: Node[] = [],
     ids = new Set<string>();
   for (const item of value.nodes) {
-    const n = object(item);
+    const update = object(item);
     if (
-      !["evidence,id,kind,parent,state,subtitle,title", "bump,evidence,id,kind,parent,state,subtitle,title"].includes(
-        Object.keys(n).sort().join(),
-      )
+      !Object.hasOwn(update, "id") ||
+      !Object.hasOwn(update, "evidence") ||
+      Object.keys(update).some(key => !Object.hasOwn(nodeSchema.properties, key))
     )
       throw Error("InvalidNode");
+    const n = { ...(typeof update.id === "string" ? nodes.get(update.id) : undefined), ...update };
     if (
       typeof n.id !== "string" ||
       !/^[a-zA-Z0-9_-]{1,40}$/.test(n.id) ||

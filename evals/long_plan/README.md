@@ -280,6 +280,58 @@ marks the measurement work done based on that report, then reopens the episode
 for the follow-up check. Checkpoints have uneven time gaps, so adjacent slider
 positions do not imply continuous activity.
 
+### Haiku inference efficiency
+
+The production updater keeps a self-contained tree and all bounded evidence in
+every request. Its response schema is now stable across event ranges, allowing
+the provider to reuse the prompt cache. The reducer still rejects out-of-range
+evidence and incomplete or overlapping event assignments. Existing nodes accept
+field patches (`id`, evidence, changed fields); new nodes still require a
+complete valid identity and description. Patches are expanded to full nodes
+before entering pending results or saved state, so stored formats do not change.
+
+The matched live-input comparison uses the same Haiku model and 52 observation
+windows from the zstd, website, installer and handoff conversations. These are
+production-sized inputs, not the fuller transcript excerpts in the browser eval.
+
+| Inference tokens | Previous plan updater | Optimized updater | Change |
+| --- | ---: | ---: | ---: |
+| Input, excluding cache reads | 274,980 | 128,284 | −53.3% |
+| Cached input | 125,311 | 251,732 | +100.9% |
+| Output | 38,679 | 39,229 | +1.4% |
+| Total input plus output | 438,970 | 419,245 | −4.5% |
+
+Cached input is already part of total input. The gain is primarily cache reuse,
+not smaller generated answers. This holds update cadence fixed and is one
+measured run; cache availability and sampling vary. No evidence was truncated
+further and no updates were deferred to obtain these savings. Results remain
+under `evals/results/long-plan/optimization-comparison.json` and the
+`opt-v2-live-stateless` directory.
+
+The selected candidate passes 115/115 reviewed checks across four real
+conversations and 17 synthetic cases, with no rejected patches. This includes
+preserving failures after recovery, TODO intent, episode boundaries, foreground
+focus, goal constraints and usage conservation. `efficiency_checks.json` retains
+the real-conversation rubric, adding a check that implementation is not assigned
+to an old tracing step. Two literal matchers now accept “holdout” as well as
+“held-out”, and workspace-away restoration as a description of the handoff loss;
+the same rubric is applied to both candidates and baseline.
+
+An experimental conversation cache (`--cached`) reuses four inference turns and
+sends accepted tree updates between complete snapshots. It cut uncached input
+67.3% and output 32.2%, but increased total tokens 17.3% and regressed the holdout
+constraint and verification-episode checks. It stays in the eval harness and is
+not used by Corgi. The earlier failed candidates and exact model outputs remain
+in `opt-v1-*` and `opt-v2-*` result directories.
+
+```sh
+# Compare against frozen *.plan.json production requests with recorded usage.
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY
+# Experimental alternative; the default run.ts path matches production.
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY --cached
+bun evals/long_plan/report.ts evals/long_plan/efficiency_checks.json RUN_DIRECTORY
+```
+
 To capture a replay with terminal font shaping and box drawing:
 
 ```sh

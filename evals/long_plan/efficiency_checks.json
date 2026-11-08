@@ -1,0 +1,157 @@
+[
+  {
+    "id": "codex-zstd",
+    "label": "Codex: zstd test",
+    "checks": [
+      {
+        "name": "holdout correction stays in benchmark goal",
+        "kind": "same_goal",
+        "a": 4,
+        "b": 8
+      },
+      {
+        "name": "corpus and benchmark remain one episode",
+        "kind": "same_episode",
+        "a": 12,
+        "b": 20
+      },
+      {
+        "name": "holdout constraint or discovered leakage stays visible",
+        "kind": "subtitle",
+        "event": 20,
+        "level": "step",
+        "pattern": "held.out|hold.?out|separat|train|leak|same workloads"
+      },
+      {
+        "name": "dictionary fairness is recognized",
+        "kind": "topic",
+        "event": 52,
+        "level": "step",
+        "pattern": "dict|train|hold|captur|corpus|fixture"
+      }
+    ]
+  },
+  {
+    "id": "claude-website",
+    "label": "Claude: website animation",
+    "checks": [
+      {
+        "name": "implementation and landing stay one episode",
+        "kind": "same_episode",
+        "a": 36,
+        "b": 126
+      },
+      {
+        "name": "actual failed tests retain resolved setback",
+        "kind": "bump",
+        "event": 98,
+        "category": "verification",
+        "state": "resolved"
+      },
+      {
+        "name": "one real problem across ordinary animation work",
+        "kind": "bump_count",
+        "count": 1
+      },
+      {
+        "name": "failed test attempt is preserved after successful retry",
+        "kind": "state",
+        "event": 98,
+        "level": "step",
+        "state": "failed",
+        "at": 134
+      },
+      {
+        "name": "episode keeps the animation objective",
+        "kind": "subtitle",
+        "event": 36,
+        "level": "episode",
+        "pattern": "heart|logo|animat"
+      }
+    ]
+  },
+  {
+    "id": "claude-handoff",
+    "label": "Claude: usage handoff",
+    "checks": [
+      {
+        "name": "overhead experiment is a separate episode",
+        "kind": "different_episode",
+        "a": 91,
+        "b": 150
+      },
+      {
+        "name": "implementation resumes the original handoff repair",
+        "kind": "same_episode",
+        "a": 91,
+        "b": 271
+      },
+      {
+        "name": "rebase is a distinct episode",
+        "kind": "different_episode",
+        "a": 271,
+        "b": 404
+      },
+      {
+        "name": "background completion does not revisit tests",
+        "kind": "focus",
+        "event": 383,
+        "target": 374,
+        "level": "step"
+      },
+      {
+        "name": "post-rebase notification does not revisit tests",
+        "kind": "focus",
+        "event": 427,
+        "target": 423,
+        "level": "step"
+      },
+      {
+        "name": "empty grep result is not a failed integration suite",
+        "kind": "bump",
+        "event": 429,
+        "category": null
+      },
+      {
+        "name": "rebase conflict recovered",
+        "kind": "bump",
+        "event": 399,
+        "category": "conflict",
+        "state": "resolved"
+      },
+      {
+        "name": "goal explains reload loss rather than moving to a worktree",
+        "kind": "subtitle",
+        "event": 271,
+        "level": "goal",
+        "pattern": "^(?!.*worktree).*(handoff|reload|daemon|workspace|restor)"
+      },
+      {
+        "name": "final PR report does not resume implementation",
+        "kind": "focus",
+        "event": 389,
+        "target": 374,
+        "level": "step"
+      },
+      {
+        "name": "implementation is named as implementation, not tracing",
+        "kind": "topic",
+        "event": 237,
+        "level": "step",
+        "pattern": "implement|fix|patch|edit",
+        "at": 261
+      }
+    ]
+  },
+  {
+    "id": "claude-installer",
+    "label": "Claude: installer design discussion",
+    "checks": [
+      {
+        "name": "ordinary research has no setback",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  }
+]

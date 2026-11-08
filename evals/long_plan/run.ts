@@ -7,6 +7,7 @@ import * as history from "./history";
 import * as plan from "./plan";
 import * as scoring from "./score";
 import { Signals } from "./signals";
+import { Conversation } from "./cached";
 import type { Provider } from "./history";
 import type { Check } from "./score";
 
@@ -50,7 +51,7 @@ async function main() {
   const manifest = option("--manifest");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --cached] [--out DIR] [--resume]",
     );
   const selection = option("--case"),
     model = option("--model", "claude:claude-haiku-5-5"),
@@ -59,7 +60,8 @@ async function main() {
   if (provider !== "claude" && provider !== "codex") throw Error("InvalidProvider");
   const batchSize = Number(option("--batch", "24")),
     ablation = option("--ablation", "all"),
-    baseline = args.includes("--flat");
+    baseline = args.includes("--flat"),
+    cachedConversation = args.includes("--cached");
   if (!["all", "no-reasoning", "no-plans", "tools-only", "live-signals"].includes(ablation))
     throw Error("InvalidAblation");
   const dir = option("--out", `evals/results/long-plan/${new Date().toISOString().replaceAll(":", "-")}`);
@@ -88,11 +90,13 @@ async function main() {
       "../../src/activity/prompt.ts",
       "../../src/activity/plan.ts",
       "../../src/activity/roadmap.ts",
+      "cached.ts",
     ].map(file => [file, history.hash(fs.readFileSync(path.join(import.meta.dir, file), "utf8"))]),
   );
   const report: {
     model: string;
     baseline: boolean;
+    transport: "stateless" | "cached-deltas";
     ablation: string;
     batch: number;
     manifest_hash: string;
@@ -105,6 +109,7 @@ async function main() {
   } = {
     model,
     baseline,
+    transport: baseline || !cachedConversation ? "stateless" : "cached-deltas",
     ablation,
     batch: batchSize,
     manifest_hash: history.hash(raw),
@@ -117,8 +122,18 @@ async function main() {
   const resume = args.includes("--resume"),
     prior = resume ? JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8")) : null;
   if (prior) {
-    for (const key of ["model", "baseline", "ablation", "batch", "manifest_hash", "instructions", "schema"] as const)
-      if (prior[key] !== report[key]) throw Error(`ResumeConfigurationChanged:${key}`);
+    for (const key of [
+      "model",
+      "baseline",
+      "transport",
+      "ablation",
+      "batch",
+      "manifest_hash",
+      "instructions",
+      "schema",
+    ] as const)
+      if ((prior[key] ?? (key === "transport" ? "stateless" : undefined)) !== report[key])
+        throw Error(`ResumeConfigurationChanged:${key}`);
     if (baseline) throw Error("FlatResumeUnsupported");
     write(path.join(dir, `before-resume-${Date.now()}.report.json`), prior);
     report.source_hashes = prior.source_hashes;
@@ -164,6 +179,7 @@ async function main() {
         phaseId = "",
         phaseIndex = 0;
       const flatContext = new flat.Context();
+      const conversation = new Conversation();
       const cached: { state?: plan.State; through: number; raw?: string; error?: string }[] =
         resume && fs.existsSync(callsPath) ? JSON.parse(fs.readFileSync(callsPath, "utf8")) : [];
       const snapshots: plan.State[] = cached.flatMap(call => (call.state ? [call.state] : [])),
@@ -213,6 +229,7 @@ async function main() {
               support,
               events,
             };
+        const road = { state, events, support };
         const started = Date.now();
         let rawResponse: string | null = null;
         const attempts: unknown[] = [];
@@ -222,11 +239,12 @@ async function main() {
             ? { ...input, correction: correction(state, rejected.raw, rejected.error!), rejected: rejected.raw }
             : input;
         try {
-          const request = {
-            instructions: baseline ? flat.instructions : plan.instructions,
-            schema: baseline ? flat.schema : plan.schemaFor(events[0].id, events.at(-1)!.id),
-            content: JSON.stringify(content),
-          };
+          const request = baseline
+            ? { instructions: flat.instructions, schema: flat.schema, content: JSON.stringify(content) }
+            : !cachedConversation
+              ? { instructions: plan.instructions, schema: plan.schema, content: JSON.stringify(content) }
+              : conversation.prepare(road);
+          if (content !== input) request.content = request.fresh_content = JSON.stringify(content);
           let response = await pool.infer(request, stopping);
           rawResponse = response.text();
           attempts.push({ raw: rawResponse, usage: response.usage });
@@ -236,14 +254,17 @@ async function main() {
             } catch (error) {
               const invalid = error instanceof Error ? error.message : String(error);
               errors.push(`Invalid first attempt: ${invalid}`);
+              conversation.invalidate();
+              const corrected = JSON.stringify({
+                ...input,
+                correction: `${correction(state, rawResponse, invalid)} Assign ONLY events ${events[0].id} through ${events.at(-1)!.id}.`,
+                rejected: rawResponse,
+              });
               response = await pool.infer(
                 {
-                  ...request,
-                  content: JSON.stringify({
-                    ...input,
-                    correction: `${correction(state, rawResponse, invalid)} Assign ONLY events ${events[0].id} through ${events.at(-1)!.id}.`,
-                    rejected: rawResponse,
-                  }),
+                  ...(cachedConversation ? conversation.prepare(road) : request),
+                  content: corrected,
+                  fresh_content: corrected,
                 },
                 stopping,
               );
@@ -302,6 +323,7 @@ async function main() {
           } else {
             const applied = plan.apply(state, rawResponse, batch);
             state = applied.state;
+            if (cachedConversation) conversation.accept(road, applied.state);
             repairs = applied.repairs;
           }
           const snapshot = structuredClone(state),
