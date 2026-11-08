@@ -23,6 +23,7 @@ for (const directory of process.argv.slice(2)) {
       );
     const activity = histories.activity(data);
     let previous: roadmap.Visit[] = [],
+      previousRows: string[] = [],
       checked = 0;
     for (const call of calls) {
       if (!call.state) continue;
@@ -48,18 +49,50 @@ for (const directory of process.argv.slice(2)) {
         for (const field of ["input", "cached", "output", "tools"] as const)
           check(sum[field] === view.counts[node.id][field], `${node.id}: ${field} not conserved`);
       }
+      const displayed = planView
+        .tail(view, view.visits.length * 3 + view.nodes.length + 1, false)
+        .rows.filter(r => r.kind === "node");
+      const rowIds = displayed.map(r => r.node.id);
+      check(
+        previousRows.every((id, i) => rowIds[i] === id),
+        "displayed history reordered",
+      );
+      previousRows = rowIds;
+      let children = new Set<string>();
+      for (const row of displayed) {
+        if (row.depth === 0) children = new Set();
+        else {
+          check(!children.has(row.node.id), `duplicate step ${row.node.id} within an episode`);
+          children.add(row.node.id);
+        }
+      }
+      for (const node of view.nodes.filter(n => n.kind === "step")) {
+        const sum = displayed
+          .filter(r => r.node.id === node.id)
+          .reduce((sum, row) => roadmap.add(sum, row.counts ?? roadmap.zero()), roadmap.zero());
+        for (const field of ["input", "cached", "output", "tools"] as const)
+          check(sum[field] === view.counts[node.id][field], `${node.id}: displayed ${field} not conserved`);
+      }
       const last = view.visits.at(-1),
         step = view.nodes.find(n => n.id === last?.step);
       if (step)
         for (const capacity of [3, 9, 15, 25]) {
           const rows = planView.tail(view, capacity, running).rows,
             leaves = rows.filter(r => r.kind === "node").filter(r => r.depth === 1);
-          if (leaves.length) check(leaves.at(-1)?.node.id === step.id, `latest step missing at height ${capacity}`);
+          if (running !== false && step.state === "active")
+            check(
+              leaves.some(r => r.node.id === step.id && r.current),
+              `active step missing at height ${capacity}`,
+            );
           check(
             leaves.filter(r => r.current).length === (running !== false && step.state === "active" ? 1 : 0),
             "wrong active visit",
           );
-          check(!leaves.some(r => r.current && r !== leaves.at(-1)), "active work behind tail");
+          const current = rows.findIndex(r => r.kind === "node" && r.current && r.depth === 1);
+          check(
+            current < 0 || !rows.slice(current + 1).some(r => r.kind === "node" && r.depth === 0),
+            "active work outside the latest episode",
+          );
           const playing = rows.some(r => (r.kind === "node" && r.current) || (r.kind === "pending" && r.active));
           if (running !== null) check(playing === running, "play markers disagree with provider lifecycle");
         }

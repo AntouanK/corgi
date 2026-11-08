@@ -274,7 +274,56 @@ test("an episode without a known current step shows an ellipsis until attributio
   expect(planView.tail(view, 3).rows.some(r => r.kind === "pending")).toBe(false);
 });
 
-test("resumed episodes and steps stay at the tail with visit costs and one pair of play icons", () => {
+test("alternating investigation steps keep two stable rows, exact costs and one active step", () => {
+  const view = fixture();
+  view.nodes[2] = { ...view.nodes[2], title: "Trace pending usage across handoff", state: "active", bump: null };
+  view.nodes.push({ ...view.nodes[2], id: "tracker", title: "Trace activity tracker handoff state" });
+  const order = ["s", "tracker", "s", "tracker", "s", "tracker", "s", "tracker", "s"];
+  const inputs = [250_000, 350_000, 675_000, 578_000, 319_000, 112_000, 113_000, 0, 235_000];
+  const tools = [7, 4, 10, 6, 3, 1, 1, 1, 2];
+  for (let i = 0; i < order.length; i++) {
+    view.visits.push({
+      step: order[i],
+      from: i + 1,
+      to: i + 1,
+      counts: { input: String(inputs[i]), cached: String(inputs[i] / 2), output: "0", tools: String(tools[i]) },
+    });
+    view.focus_step = order[i];
+    const rows = planView.tail(view, 30, true).rows.filter(r => r.kind === "node");
+    expect(rows.map(r => r.node.id)).toEqual(i ? ["e", "s", "tracker"] : ["e", "s"]);
+    expect(rows.filter(r => r.current && r.depth === 1).map(r => r.node.id)).toEqual([order[i]]);
+    expect(planView.tail(view, 2, true).rows.some(r => r.kind === "node" && r.node.id === order[i] && r.current)).toBe(
+      true,
+    );
+  }
+  const rows = planView.tail(view, 30, true).rows.filter(r => r.kind === "node");
+  expect(rows.map(r => [r.node.id, r.counts?.input, r.counts?.cached, r.counts?.tools])).toEqual([
+    ["e", "2632000", "1316000", "35"],
+    ["s", "1592000", "796000", "23"],
+    ["tracker", "1040000", "520000", "12"],
+  ]);
+});
+
+test("failed attempts and retries with the same title remain distinct", () => {
+  const view = fixture();
+  view.nodes.push({ ...view.nodes[2], id: "retry", state: "active", bump: null });
+  view.visits = roadmap.appendVisits(
+    [],
+    [
+      { from: 1, to: 2, node: "s" },
+      { from: 3, to: 4, node: "retry" },
+    ],
+  );
+  view.focus_step = "retry";
+  const steps = planView
+    .tail(view, 10, true)
+    .rows.filter(r => r.kind === "node")
+    .filter(r => r.depth === 1);
+  expect(steps.map(r => r.node.id)).toEqual(["s", "retry"]);
+  expect(steps.map(r => r.node.state)).toEqual(["failed", "active"]);
+});
+
+test("steps accumulate within an episode while returned episodes keep separate costs", () => {
   const view = fixture();
   view.nodes[2].state = "active";
   view.nodes[2].bump!.evidence = [1];
@@ -297,7 +346,8 @@ test("resumed episodes and steps stay at the tail with visit costs and one pair 
     v.counts = { input: String((i + 1) * 100), cached: "50", output: "0", tools: "1" };
   });
   const rows = planView.tail(view, 30).rows.filter(r => r.kind === "node");
-  expect(rows.map(r => r.node.id)).toEqual(["e", "s", "s2", "s", "e2", "s3", "e", "s"]);
+  expect(rows.map(r => r.node.id)).toEqual(["e", "s", "s2", "e2", "s3", "e", "s"]);
+  expect(rows.filter(r => r.node.id === "s").map(r => r.counts?.input)).toEqual(["400", "500"]);
   expect(rows.filter(r => r.returned).map(r => r.node.id)).toEqual(["e"]);
   expect(rows.filter(r => r.current).map(r => r.node.id)).toEqual(["e", "s"]);
   expect(rows.filter(r => r.depth === 0).map(r => r.counts?.input)).toEqual(["600", "400", "500"]);

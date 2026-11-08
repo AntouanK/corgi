@@ -53,13 +53,16 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
       const latest = i === view.visits.length - 1;
       block.heading.counts = roadmap.add(block.heading.counts!, visit.counts);
       block.heading.current = running !== false && latest && episode.id === view.focus && episode.state === "active";
-      block.children.push({
-        kind: "node",
-        node: { ...step, bump: bumps.get(step.id) === i ? step.bump : null },
-        depth: 1,
-        counts: visit.counts,
-        current: running !== false && latest && currentStep(view, step),
-      });
+      let child = block.children.find(r => r.kind === "node" && r.node.id === step.id);
+      if (!child) {
+        child = { kind: "node", node: { ...step, bump: null }, depth: 1, counts: roadmap.zero(), current: false };
+        block.children.push(child);
+      }
+      if (child.kind === "node") {
+        child.counts = roadmap.add(child.counts!, visit.counts);
+        child.current = running !== false && latest && currentStep(view, step);
+        if (bumps.get(step.id) === i) child.node.bump = step.bump;
+      }
       if (block.heading.current && ["done", "abandoned", "planned"].includes(step.state))
         block.children.push({ kind: "pending", parent: episode });
     });

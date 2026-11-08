@@ -65,8 +65,11 @@ Late results update their original visit without moving attention. Deliberately
 resuming a task appends a visit; **↩** appears once on a returned episode, not on
 every repeated child. Earlier visits stay in place. Consecutive work and neutral
 events do not create extra visits. Episode rows group consecutive
-visits to that episode and show their combined cost. Steps show only their visit
-cost; totals still count the whole conversation once. Late receipts stay with their
+visits to that episode and show their combined cost. Within that block, every
+step ID has one row, in first-seen order, accumulating its visits’ tokens, calls
+and cached input. Focus moves between these existing rows without reordering
+them. Returning from a different episode starts a new block with separate costs;
+totals still count the whole conversation once. Late receipts stay with their
 generating visit. Problems appear on the visit where they arose, with recovery
 updating that explanation. Sidebar branches connect steps and their explanations. Two or more hidden steps get a “… N more” row instead of a
 continued suffix. Provider lifecycle gates play markers independently of inferred
@@ -105,10 +108,12 @@ bun evals/long_plan/preview.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 bun evals/long_plan/check_visits.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 ```
 
-`check_visits.ts` checks chronological prefixes, per-visit token/cache/call
-conservation, and active work at the tail at several heights, without model calls.
+`check_visits.ts` checks chronological prefixes, unique steps within episode
+blocks, stable displayed order, raw and displayed token/cache/call conservation,
+and visible active work within the latest episode at several heights, without
+model calls.
 Before the focus correction, the recorded development sessions and synthetic
-probes passed these checks at 276 accepted checkpoints, despite 122 inferred
+probes passed the earlier accounting checks at 276 accepted checkpoints, despite 122 inferred
 step returns. That result missed excessive returns: attribution changes were
 incorrectly treated as changes in attention. Browser checks cover each at
 18, 24 and 34 rows. These rendering/accounting checks do not replace the semantic
@@ -241,8 +246,9 @@ The revised four-session run passes 30/31 reviewed assertions. A 20-event synthe
 probe passes 8/9: background polls and notifications do not steal focus, but the
 model split the repair into a separate episode instead of keeping it with the
 failed verification. The real-session failure is a final PR report interpreted
-as resumed implementation. This still creates excessive repeated steps in the
-long example, even though it no longer fills the panel with return icons.
+as resumed implementation. This still creates excessive internal visits in the
+long example. The display now combines those visits by step ID within each
+episode block, rather than showing repeated rows.
 The candidate remains experimental; these failures are retained in `review.json`.
 The original model responses are unchanged when the deterministic focus reducer
 is re-evaluated. The semantic rubric was added after inspecting these histories.
@@ -251,6 +257,17 @@ All 61 accepted checkpoints pass visit ordering, usage conservation, tail and
 lifecycle checks. Browser checks cover all five replays at three heights (183
 states), plus mobile width and deep links. The browser gallery uses actual Ghostty
 captures; the separate interactive replay remains a layout preview.
+
+The repeated trace and implementation/PR rows exposed a display bug: every
+attribution visit was shown as a new step. The panel now groups visits by stable
+step ID within each consecutive episode block. At event 99 of the handoff replay,
+the alternating usage/tracker traces each appear once, with their full costs;
+at event 390, implementation and opening the PR each appear once in the returned
+episode. Different IDs still preserve separate failed attempts and retries, even
+with identical titles. Returning after a different episode retains a separate
+block. All 337 recorded checkpoints (the newer set and previous corpus) pass the
+expanded ordering, uniqueness and conservation checks. No new model calls were
+needed for this deterministic display correction.
 
 To capture a replay with terminal font shaping and box drawing:
 
