@@ -46,7 +46,7 @@ const args = process.argv.slice(2),
 if (!Number.isInteger(cacheTurns) || cacheTurns < 1 || cacheTurns > 32) throw Error("InvalidCacheTurns");
 if (!directory || !destination)
   throw Error(
-    "Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain] [--owner syntax|reviewed|lean | --fs | --lines | --json-ops] [--cache-budget] [--cache-turns N]",
+    "Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain] [--owner VARIANT | --fs | --lines | --json-ops] [--cache-budget] [--cache-turns N]",
   );
 const json = (value: unknown) => JSON.stringify(value, (_, v) => (typeof v === "bigint" ? String(v) : v), 2);
 fs.mkdirSync(destination, { recursive: true });

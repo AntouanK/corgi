@@ -708,6 +708,137 @@ Raw programs, accepted snapshots and receipts are under
 checks matched source evidence/checkpoints and includes both broad repeats and
 production-window repeats. `owner2-source/` preserves the evaluated source.
 
+#### Repeated ownership optimization
+
+The follow-up keeps the seven operators and tests independent repetitions per
+conversation, separately from a rejected program's single correction attempt.
+The frozen `reviewed` prompt remains the control. `direct` keeps its full semantic
+policy but asks the model to process observations chronologically and emit local
+changes, instead of first optimizing the complete command list. Redundant valid
+commands are acceptable; missing failures and constraints are not.
+
+The experiments also include:
+
+- `guided`: complete background-poll, failed-check and branch-repair examples,
+  plus explicit short-path and output-size guidance.
+- `indexed`: the same prompt with literal, truncated result prefixes as a
+  navigation aid. Every source event remains complete. The index does not
+  classify results as failures.
+- `balanced` / `compact`: a shorter policy retaining the distinctions the first
+  lean prompt lost. `compact` additionally gives specific correction guidance
+  when a second failure would overwrite an already resolved one.
+- `direct-focus`: the full chronological policy with updates repeating only
+  changed nodes, the focused step, open errors, and all their ancestors. The
+  accepted tree remains complete on refresh. `focused` tests that same state
+  selection with the shorter policy.
+- `direct-bounded`: the full chronological policy and ordinary state updates,
+  but source support on refresh retains the latest eight older observations,
+  evidence for the focused step and its ancestors, and every open problem's
+  evidence. Every new event and every accepted node remains present. Newly
+  relevant old evidence is sent when the focus returns to another branch.
+
+All variants use the same low effort, sixteen-update / 90k cache budget and
+one-correction policy unless explicitly labeled as a 32-update cache trial.
+That longer cache trial was more expensive. An initial short-policy trial lost
+an update after both programs attempted to put two different failures on one
+step; its incomplete cost is not compared as a complete replay.
+
+Unit tests execute the exact complete prompt examples. They also check that
+state filtering retains ancestor paths and current constraints, bounded support
+preserves new events and open-error evidence, and evidence omitted from a fresh
+seed is supplied when it becomes relevant again. The replay resumption check now
+distinguishes a valid null text-only schema from a missing configuration value;
+changed schemas, prompts and cache settings still reject resumption.
+
+`replicate_report.py` requires at least three quality and three production-window
+runs per finalist. It checks source evidence, checkpoint alignment and rubric
+identity; an incomplete run cannot be compared as a cheaper full run. It reports
+per-conversation failures, per-run scores, means, ranges and sample standard
+deviations. All retry receipts are included; thinking remains a subset of output.
+Initial cache reads/writes are reported because a warm initial prompt and a cold
+one are not equivalent. No run is dropped merely for scoring poorly.
+
+```sh
+bun evals/long_plan/run.ts --manifest CASES.json --owner direct \
+  --cache-budget --batch 24 --effort low --timeout-ms 240000 --out RUN_DIRECTORY
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY RUN_DIRECTORY \
+  --owner direct --cache-budget
+python3 evals/long_plan/replicate_report.py GROUPS.json COMPARISON.json
+```
+
+`GROUPS.json` is an array of `{label, quality: [PREFIX, ...], windows: [DIR, ...]}`.
+Each quality prefix has `-real`, `-synthetic`, and `-focus` directories with
+`review.json` produced by `report.ts`. Historical reviews use
+`efficiency_checks.json`; synthetic and focus reviews retain their original
+manifests. Three repeats estimate variation on these conversations, not a general
+reliability rate. The fixed regex checks also have limits: for example, the
+valid subtitle "Dictionaries exclude each evaluated recording; byte-exact round
+trips verified" failed the existing constraint-label regex in a focused-state
+run. It remains a failed check in the primary comparison; the rubric was not
+changed to favor that variant.
+
+The final comparison uses three independent runs of each conversation: 297 broad
+updates and a separate 156 production-window updates per variant. Parser retries
+are additional measured calls, not independent repetitions. Every finalist
+completed every update; all 189 structural checks passed for each variant.
+
+| Ownership variant | Semantic checks across three runs | Per-run scores / 53 | Corrected rejections / 297 updates | Mean cost / 52 production updates | Cost range |
+| --- | ---: | --- | ---: | ---: | --- |
+| Committed `reviewed` control | 150/159 | 51, 48, 51 | 3 | $0.02647 | $0.02550–$0.02769 |
+| **Recommended `direct`** | **155/159** | **53, 53, 49** | 7 | **$0.02789** | $0.02639–$0.02917 |
+| `direct-focus` | 154/159 | 51, 53, 50 | 5 | $0.02776 | $0.02691–$0.02885 |
+| `direct-bounded` | 155/159 | 52, 51, 52 | 11 | $0.02901 | $0.02760–$0.02991 |
+
+The corresponding mean production token counts include every retry:
+
+| Per 52 updates | Reviewed control | Recommended direct | Direct + focused state | Direct + bounded support |
+| --- | ---: | ---: | ---: | ---: |
+| Uncached input, including writes | 53,923 | 58,170 | 58,226 | 58,136 |
+| Cached input | 683,357 | 687,981 | 689,675 | 700,164 |
+| Output, including thinking | 17,727 | 18,770 | 18,450 | 20,785 |
+| Thinking subset | 13,808 | 14,343 | 13,906 | 16,142 |
+
+The recommendation is a quality tradeoff, not a proven cost reduction: `direct`
+costs 5.4% more on the measured mean, about $0.00142 per 52 updates. The ranges
+overlap; three runs do not establish a statistically reliable cost difference.
+One direct run initially paid for a cold prompt while the control's initial
+prompt was cached. This cost is retained in the mean, and initial cache receipts
+are exposed in the machine-readable report. The current application default is
+unchanged; `direct` is the recommended **ownership eval** variant.
+
+Historical checks, aggregated across the three independent runs:
+
+| Conversation | Reviewed control | Direct | Direct + focused state | Direct + bounded support |
+| --- | ---: | ---: | ---: | ---: |
+| Codex zstd | 11/12 | 11/12 | 11/12 | 11/12 |
+| Claude website | 12/18 | 16/18 | 14/18 | 16/18 |
+| Claude handoff | 29/30 | 29/30 | 30/30 | 29/30 |
+| Claude installer | 3/3 | 3/3 | 3/3 | 3/3 |
+
+The transient Pillow-to-ffmpeg recovery was retained in two of three direct runs,
+versus none of three control runs. Direct's third run also missed a zstd fairness
+finding and merged a substantive rebase into diagnosis. Two perfect 53/53 runs
+therefore did not establish reliability. All synthetic/focus checks passed in
+all direct runs. Separate three-run targeted probes, prior holdouts and
+cancellation cases passed 72/72, 90/90 and 33/33 respectively, with all attempts
+retained. Bounded-support runs also passed those separate checks, but did not
+improve broad quality and cost more.
+
+The selected programs remain filesystem-like; no extra operators were added.
+The cheaper short-policy candidates lost meaningful distinctions. Result indexing
+and longer cache reuse did not earn their cost, and neither context-pruning
+strategy is enabled by the recommendation.
+
+Artifacts are under `evals/results/long-plan/line-format/`. The complete comparison
+is `owner6-comparison.json`, generated from `owner6-replicates.json`.
+It retains all three control runs, all three chronological full-policy runs,
+all three focused-state runs, all three bounded-support
+runs, production receipts and per-conversation outcomes. `owner3-*` and
+`owner4-*` also retain exploratory and incomplete trials. The selected direct
+probe/holdout/cancellation repetitions are `owner5-direct-{1,2,3}-{probe,holdout,cancel}`.
+`owner6-source/` preserves the evaluated implementation; test snapshots use a
+`.snapshot` suffix so Bun does not discover them as a second test suite.
+
 #### Cost accounting
 
 Use API-equivalent dollars, not the sum of input and output tokens. Rates checked

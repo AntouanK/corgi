@@ -32,6 +32,30 @@ export type Case = {
 };
 const json = (v: unknown) => JSON.stringify(v, (_, value) => (typeof value === "bigint" ? String(value) : value), 2);
 const write = (file: string, value: unknown) => fs.writeFileSync(file, json(value) + "\n");
+export function validateResume(
+  prior: Record<string, unknown>,
+  current: Record<string, unknown>,
+  defaults: Record<string, unknown> = {},
+) {
+  for (const key of [
+    "model",
+    "effort",
+    "brief_thinking",
+    "cache_budget",
+    "cache_turns",
+    "timeout_ms",
+    "baseline",
+    "transport",
+    "ablation",
+    "batch",
+    "manifest_hash",
+    "instructions",
+    "schema",
+  ]) {
+    const value = prior[key] === undefined ? defaults[key] : prior[key];
+    if (value !== current[key]) throw Error(`ResumeConfigurationChanged:${key}`);
+  }
+}
 function correction(state: plan.State, raw: string, invalid: string) {
   let identities = "";
   try {
@@ -71,7 +95,7 @@ async function main() {
     reuse = ops && !args.includes("--stateless");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--owner syntax|reviewed|lean | --fs | --lines | --json-ops] [--cache-budget] [--cache-turns N] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--owner VARIANT | --fs | --lines | --json-ops] [--cache-budget] [--cache-turns N] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
     );
   const cacheTurns = Number(option("--cache-turns", String(priceBudget.turns)));
   if (!Number.isInteger(cacheTurns) || cacheTurns < 1 || cacheTurns > 32) throw Error("InvalidCacheTurns");
@@ -216,22 +240,7 @@ async function main() {
       cache_turns: 32,
       timeout_ms: 60000,
     };
-    for (const key of [
-      "model",
-      "effort",
-      "brief_thinking",
-      "cache_budget",
-      "cache_turns",
-      "timeout_ms",
-      "baseline",
-      "transport",
-      "ablation",
-      "batch",
-      "manifest_hash",
-      "instructions",
-      "schema",
-    ] as const)
-      if ((prior[key] ?? defaults[key]) !== report[key]) throw Error(`ResumeConfigurationChanged:${key}`);
+    validateResume(prior, report, defaults);
     if (baseline) throw Error("FlatResumeUnsupported");
     write(path.join(dir, `before-resume-${Date.now()}.report.json`), prior);
     report.source_hashes = prior.source_hashes;

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as owner from "./plan_owner";
 import * as plan from "./plan";
 import * as roadmap from "./roadmap";
+import * as protocol from "./plan_protocol";
 import type { Input } from "./roadmap";
 
 const events = (from: number, to: number, kind: plan.Event["kind"] = "tool"): plan.Event[] =>
@@ -156,4 +157,62 @@ test("explicit state fields and compact status updates agree without accepting a
     "set /s1 done Tests passed\nset_owner 2..5 /s1",
   ])
     expect(() => owner.apply(source, raw)).toThrow("InvalidOperation");
+});
+
+test("the polling example attributes background results without changing foreground work", () => {
+  const source = input(),
+    step = source.state.nodes.find(n => n.id === "s1")!;
+  source.state.nodes.push({ ...step, id: "s8" }, { ...step, id: "s9" });
+  source.state.through = 80;
+  source.state.spans = [{ from: 1, to: 80, node: "s8", focus: true }];
+  source.events = events(81, 84, "assistant");
+  source.events[1].kind = "tool";
+  source.events[2].kind = "result";
+  const result = owner.apply(source, owner.examples.polling);
+  expect(result.patch.spans.map(s => [s.from, s.to, s.node, s.focus])).toEqual([
+    [81, 81, "s8", true],
+    [82, 83, "s9", false],
+    [84, 84, "s8", true],
+  ]);
+  expect(roadmap.focusStep(result.state.spans)).toBe("s8");
+  const failed = owner.apply(
+    { state: result.state, events: events(85, 86, "result"), support: [] },
+    owner.examples.failedCheck,
+  );
+  expect(failed.state.nodes.find(n => n.id === "s8")?.state).toBe("failed");
+  expect(failed.state.nodes.find(n => n.id === "s8")?.bump?.state).toBe("open");
+});
+
+test("the branch-repair example creates a sibling episode under the existing outcome", () => {
+  const source = input();
+  source.state.through = 90;
+  source.state.spans[0].to = 90;
+  source.events = events(91, 91);
+  const result = owner.apply(source, owner.examples.branchRepair);
+  expect(result.state.nodes.filter(n => n.kind === "goal").map(n => n.id)).toEqual(["g1"]);
+  expect(result.state.nodes.filter(n => n.kind === "episode").map(n => [n.id, n.parent])).toEqual([
+    ["e1", "g1"],
+    ["e4", "g1"],
+  ]);
+  expect(result.state.nodes.find(n => n.id === "s10")?.parent).toBe("e4");
+  expect(roadmap.focusStep(result.state.spans)).toBe("s10");
+});
+
+test("result indexing preserves full source evidence and never indexes old or non-result events", () => {
+  const source = input();
+  source.events[1].kind = "result";
+  source.events[1].text = 'Exit 1: "quoted"\\path\n' + "long output ".repeat(50) + "COMPLETE END";
+  source.support = events(1, 1, "result");
+  const envelope = protocol.envelope(source),
+    before = structuredClone(envelope),
+    ordinary = owner.encode(envelope),
+    indexed = owner.indexed(envelope),
+    { result_index, ...metadata } = JSON.parse(indexed.split("\n", 1)[0]);
+  expect(result_index).toEqual([[3, source.events[1].text.slice(0, 240)]]);
+  expect(metadata).toEqual(JSON.parse(ordinary.split("\n", 1)[0]));
+  expect(indexed.slice(indexed.indexOf("\n"))).toBe(ordinary.slice(ordinary.indexOf("\n")));
+  expect(indexed).toContain("COMPLETE END");
+  expect(envelope).toEqual(before);
+  envelope.events = [];
+  expect(owner.indexed(envelope)).toBe(owner.encode(envelope));
 });

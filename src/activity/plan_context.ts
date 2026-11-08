@@ -36,11 +36,28 @@ export class Context {
     private readonly wire: Pick<Request, "instructions" | "schema"> & {
       encode?: (input: protocol.Envelope) => string;
       hint?: (reason: string) => string;
+      repeat?: "focused";
+      support?: "active";
     } = protocol,
     private readonly budget: { tokens: number; turns: number } | null = null,
   ) {}
   private encode(input: protocol.Envelope) {
     return (this.wire.encode ?? protocol.encode)(input);
+  }
+  private input(input: Input): Input {
+    if (this.wire.support !== "active") return input;
+    const byId = new Map(input.state.nodes.map(n => [n.id, n])),
+      kept = new Set(input.support.slice(-8).map(e => e.id));
+    let id = protocol.focus(input);
+    while (id) {
+      const node = byId.get(id);
+      if (!node) break;
+      for (const event of node.evidence) kept.add(event);
+      id = node.parent;
+    }
+    for (const node of input.state.nodes)
+      if (node.bump?.state === "open") for (const event of node.bump.evidence) kept.add(event);
+    return { ...input, support: input.support.filter(e => kept.has(e.id)) };
   }
   private previous: Input | null = null;
   private expected = "";
@@ -51,6 +68,7 @@ export class Context {
     this.previous = null;
   }
   prepare(input: Input): Request {
+    input = this.input(input);
     if (!this.previous || this.expected !== signature(input.state) || this.turns >= (this.budget?.turns ?? 16)) {
       this.previous = null;
       this.key = "plan:" + crypto.randomUUID();
@@ -62,10 +80,24 @@ export class Context {
     if (this.previous) {
       const nodes = new Map(this.previous.state.nodes.map(n => [n.id, JSON.stringify(n)])),
         support = new Map([...this.previous.support, ...this.previous.events].map(e => [e.id, e.text]));
+      const changed = input.state.nodes.filter(n => n.bump?.state === "open" || nodes.get(n.id) !== JSON.stringify(n));
+      let updates: State["nodes"];
+      if (this.wire.repeat === "focused") {
+        const byId = new Map(input.state.nodes.map(n => [n.id, n])),
+          included = new Set(changed.map(n => n.id)),
+          focus = protocol.focus(input);
+        if (focus) included.add(focus);
+        for (const id of included) {
+          const parent = byId.get(id)?.parent;
+          if (parent) included.add(parent);
+        }
+        updates = input.state.nodes.filter(n => included.has(n.id));
+      } else {
+        const included = new Set(changed.map(n => n.id));
+        updates = input.state.nodes.filter(n => n.kind !== "step" || included.has(n.id));
+      }
       content = this.encode({
-        tree_updates: input.state.nodes
-          .filter(n => n.kind !== "step" || n.bump?.state === "open" || nodes.get(n.id) !== JSON.stringify(n))
-          .map(protocol.node),
+        tree_updates: updates.map(protocol.node),
         support: input.support.filter(e => !support.get(e.id)?.startsWith(e.text)).map(protocol.event),
         focus: protocol.focus(input),
         range: [input.events[0].id, input.events.at(-1)!.id],
@@ -94,13 +126,14 @@ export class Context {
     };
   }
   accept(input: Input, state: State, usage?: Pick<Tokens, "input" | "output">) {
-    this.previous = structuredClone(input);
+    this.previous = structuredClone(this.input(input));
     this.expected = signature(state);
     this.turns++;
     this.used = usage ? usage.input + usage.output : null;
   }
 
   retry(input: Input, rejected: string, reason: string, usage: Pick<Tokens, "input" | "output">): Request {
+    input = this.input(input);
     const correction = `The previous response was rejected atomically: ${reason}. ${(this.wire.hint ?? hint)(reason)} NONE of its edits or assignments were applied. accepted lists the unchanged authoritative nodes; never recreate those IDs. Replace the ENTIRE response for events ${input.events[0].id} through ${input.events.at(-1)!.id}, using the original evidence still in this conversation. Return only the corrected operations.`,
       content = this.encode({
         correction,

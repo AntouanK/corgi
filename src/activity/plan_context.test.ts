@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as plan from "./plan";
 import * as protocol from "./plan_protocol";
 import * as lines from "./plan_lines";
+import * as owner from "./plan_owner";
 import { Context, priceBudget } from "./plan_context";
 import type { Input } from "./roadmap";
 
@@ -14,6 +15,103 @@ const event = (id: number): plan.Event => ({
   text: "Test the repaired offsets",
 });
 const input = (): Input => ({ state: plan.empty(), events: [event(1)], support: [] });
+
+test("focused cached updates retain current constraints, open errors and complete parent paths", () => {
+  const state = plan.empty();
+  for (let i = 1; i <= 3; i++) {
+    const common = { title: "Repair saved links", subtitle: "Keep saved links valid", evidence: [1] };
+    state.nodes.push(
+      { ...common, id: `g${i}`, parent: null, kind: "goal", state: "active" },
+      { ...common, id: `e${i}`, parent: `g${i}`, kind: "episode", state: "active" },
+      { ...common, id: `s${i}`, parent: `e${i}`, kind: "step", state: "active" },
+    );
+  }
+  state.nodes[8].bump = { kind: "environment", state: "open", detail: "Renderer is missing", evidence: [1] };
+  const session = new Context(owner.variant("focused")),
+    first: Input = { state, events: [event(1)], support: [], focus: "s1" },
+    request = session.prepare(first),
+    accepted = { ...state, through: 1 },
+    next: Input = { ...first, state: accepted, events: [event(2)], support: [event(1)] };
+  session.accept(first, accepted);
+  const delta = session.prepare(next),
+    metadata = JSON.parse(delta.content.split("\n", 1)[0]);
+  expect(delta.conversation).toBe(request.conversation);
+  expect(metadata.tree_updates.map((row: string[]) => row[0])).toEqual([
+    "/g1",
+    "/g1/e1",
+    "/g1/e1/s1",
+    "/g3",
+    "/g3/e3",
+    "/g3/e3/s3",
+  ]);
+  expect(metadata.tree_updates[2][3]).toBe("Keep saved links valid");
+  const changed = structuredClone(accepted);
+  changed.through = 2;
+  changed.nodes[5].subtitle = "A late result established the saved-link format";
+  session.accept(next, changed);
+  const update = session.prepare({ ...next, state: changed, events: [event(3)] });
+  expect(JSON.parse(update.content.split("\n", 1)[0]).tree_updates.map((row: string[]) => row[0])).toEqual([
+    "/g1",
+    "/g1/e1",
+    "/g1/e1/s1",
+    "/g2",
+    "/g2/e2",
+    "/g2/e2/s2",
+    "/g3",
+    "/g3/e3",
+    "/g3/e3/s3",
+  ]);
+  session.invalidate();
+  const fresh = session.prepare({ ...next, state: changed, events: [event(3)] });
+  expect(fresh.content).toBe(fresh.fresh_content!);
+  expect(JSON.parse(fresh.content.split("\n", 1)[0]).tree).toHaveLength(9);
+  expect(fresh.conversation).not.toBe(request.conversation);
+});
+
+test("bounded support keeps branch and failure evidence and sends newly relevant old evidence on return", () => {
+  const state = plan.empty(),
+    common = { title: "Repair saved links", subtitle: "Keep saved links valid", state: "active" as const };
+  state.through = 30;
+  state.nodes = [
+    { ...common, id: "g", parent: null, kind: "goal", evidence: [1] },
+    { ...common, id: "e", parent: "g", kind: "episode", evidence: [3] },
+    { ...common, id: "s", parent: "e", kind: "step", evidence: [2] },
+    { ...common, id: "other", parent: "e", kind: "step", evidence: [10] },
+    {
+      ...common,
+      id: "failed",
+      parent: "e",
+      kind: "step",
+      state: "failed",
+      evidence: [5],
+      bump: { kind: "environment", state: "open", detail: "Renderer unavailable", evidence: [5] },
+    },
+  ];
+  const session = new Context(owner.variant("direct-bounded")),
+    first: Input = {
+      state,
+      events: [event(31)],
+      support: Array.from({ length: 30 }, (_, i) => event(i + 1)),
+      focus: "s",
+    },
+    before = structuredClone(first),
+    supportIds = (content: string) => [...content.split("\nevents\n")[0].matchAll(/^@(\d+) /gm)].map(m => Number(m[1])),
+    request = session.prepare(first);
+  expect(supportIds(request.content)).toEqual([1, 2, 3, 5, 23, 24, 25, 26, 27, 28, 29, 30]);
+  expect(JSON.parse(request.content.split("\n", 1)[0]).tree).toHaveLength(5);
+  expect(request.content).toContain("@31 1 tool\n Test the repaired offsets");
+  expect(first).toEqual(before);
+  const accepted = { ...state, through: 31 };
+  session.accept(first, accepted);
+  const returned = session.prepare({ ...first, state: accepted, events: [event(32)], focus: "other" });
+  expect(returned.conversation).toBe(request.conversation);
+  expect(supportIds(returned.content)).toEqual([10]);
+  expect(supportIds(returned.fresh_content!)).toContain(10);
+  expect(supportIds(returned.fresh_content!)).toContain(5);
+  const correction = session.retry(first, "invalid program", "InvalidSetback", { input: 10n, output: 10n });
+  expect(supportIds(correction.fresh_content!)).toEqual(supportIds(request.content));
+  expect(JSON.parse(correction.content.split("\n", 1)[0]).accepted).toHaveLength(5);
+});
 
 test("the line experiment and default JSON protocol receive identical evidence", () => {
   const source = input(),
