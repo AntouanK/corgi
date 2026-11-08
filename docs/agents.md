@@ -284,11 +284,12 @@ its time, without deleting it. Pending, active or blocked work keeps the
 section visible, and a new edit shows it again. Partial checklists stay visible
 because missing items may still be open.
 
-## Experimental long-term plans
+## Long-term plans
 
-`CORGI_LONG_PLAN=1` opts a daemon into goal → episode → step inference through
-its existing activity worker. The plan is separate from lifecycle and native
-OMP activity labels. Select an agent and use prefix P or the command menu's
+Activity summaries collect goal → episode → step plans through the activity
+worker by default. No feature flag or separate environment is needed, including
+after reloading a session that used flat summaries. The plan is separate from
+lifecycle and native OMP activity labels. Select an agent and use prefix P or the command menu's
 Long-term plan to inspect it. The tree has two levels, episodes and steps,
 with one row per item and the goal in the header. A setback adds one explanation
 line beneath its step. It follows the tail automatically,
@@ -327,8 +328,7 @@ protocol 3 or saved-format 6 migration is needed.
 The shared reducer prevents lost failed attempts and contradictory completed
 parents, but semantic errors remain in real replays. See
 [the eval and scorecard](../evals/long_plan/README.md) for datasets, bounds,
-known failures and the browser review generator. The default flat summary
-path is unchanged. Codex and Claude confirmed task tools now supply checklists
+known failures and the browser review generator. Codex and Claude confirmed task tools supply checklists
 through the same boundary as OMP; failed edits never update the list.
 
 ## Inference and data boundaries
@@ -380,9 +380,9 @@ snapshots without changing protocol or saved-format versions.
 Known plan tiers add a defaulted display field to the transient catalog; older
 catalog records normalize it to empty, without a protocol or saved-format bump.
 
-Requests carry bounded current evidence. Default activity summaries receive commentary
-and tool descriptions; the opt-in plan also receives bounded outcome excerpts; link naming can include visible terminal
-text. Conversation names use at most 2048 bytes of the initial user request,
+Requests carry bounded current evidence. Activity plans receive commentary,
+tool descriptions and bounded outcome excerpts; link naming can include visible
+terminal text. Conversation names use at most 2048 bytes of the initial user request,
 never tool output or assistant commentary. Only untitled root conversations
 attached to live Corgi panes, of providers without automatic titles, opt in;
 explicit names always win. Pending name requests can be reconstructed after

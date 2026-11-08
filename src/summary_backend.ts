@@ -4,8 +4,8 @@ import type { Provider } from "./providers";
 import { getLogger } from "./log";
 import * as contract from "./activity/prompt";
 import * as roadmap from "./activity/roadmap";
-import * as plan_protocol from "./activity/plan_protocol";
-import * as plan_lines from "./activity/plan_lines";
+import type * as plan_protocol from "./activity/plan_protocol";
+import type * as plan_lines from "./activity/plan_lines";
 import * as plan_owner from "./activity/plan_owner";
 import { Context, priceBudget } from "./activity/plan_context";
 import { Text } from "./agents";
@@ -29,18 +29,11 @@ export function outcome(request: bigint, discard: Discard | null) {
     reason: discard,
   });
 }
-function defaultPlanProtocol() {
-  switch (process.env.CORGI_LONG_PLAN_LINES) {
-    case "0":
-      return plan_protocol;
-    case "1":
-      return plan_lines;
-    default:
-      return plan_owner.variant();
-  }
-}
 export class Backend {
-  constructor(private readonly planProtocol = defaultPlanProtocol()) {}
+  constructor(
+    private readonly planProtocol:
+      typeof plan_protocol | typeof plan_lines | ReturnType<typeof plan_owner.variant> = plan_owner.variant(),
+  ) {}
   pool = new Pool();
   next_request = 0n;
   private plans = new Map<string, Context>();

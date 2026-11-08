@@ -15,6 +15,7 @@ import { adapter } from "../providers";
 import { Meter } from "../usage/live";
 import type { Pane } from "../runtime";
 import * as clock from "../clock";
+import { testBuild } from "../build_assets";
 export const cooldown_ms = 8000,
   tool_quiet_ms = 5000,
   tool_wait_ms = 30000,
@@ -161,7 +162,8 @@ export class Slot {
   }
 }
 export class Worker {
-  plans = process.env.CORGI_LONG_PLAN === "1";
+  // Keep the pre-plan worker available to compatibility fixtures only.
+  plans = !(testBuild && process.env.CORGI_TEST_LEGACY_SUMMARIES === "1");
   names = new conversation_name.Queue();
   prefer_names = true;
   link_requests: Array<links.Request | null> = Array(links.capacity).fill(null);
@@ -359,8 +361,7 @@ export class Worker {
     )
       throw Error("InvalidCheckpoint");
     const worker = new Worker(saved.choice);
-    worker.plans =
-      process.env.CORGI_LONG_PLAN === undefined ? saved.plans === true : process.env.CORGI_LONG_PLAN === "1";
+    // Older handoffs' plans:false must not disable the current activity mode.
     worker.selected = Selection.parse(saved.selected);
     worker.launches = setup.Launches.restore(saved.launches);
     for (const key of [

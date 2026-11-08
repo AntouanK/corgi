@@ -1,26 +1,23 @@
 # Long-term plan view
 
-An experimental eval and opt-in Corgi integration for a durable account of an
-agent's work. The replay and daemon share `src/activity/plan.ts`: the prompt,
-patch validation, hierarchy and setback contract. Flat summaries remain the
-default. The opt-in plan updater uses filesystem ownership commands with the
-evaluated `direct` prompt; its semantic limitations and measured costs are
-recorded below.
+An eval and Corgi integration for a durable account of an agent's work. Long-term
+plans are the default activity summarizer. The replay and daemon share patch
+validation, hierarchy and setback handling. The updater uses filesystem ownership
+commands with the evaluated `direct` prompt; its semantic limitations and
+measured costs are recorded below.
 
 ## Try the integration
 
-From this checkout, start a separate environment:
+From this checkout, rebuild and reload your normal Corgi:
 
 ```sh
-CORGI_LONG_PLAN=1 ./go.ts --env long-plan --no-kill
+./go.ts --reload --no-kill
 ```
 
-Leave `CORGI_LONG_PLAN_LINES` unset to use the new ownership updater. Set it to
-`1` for the previous line updater or `0` for compact JSON. To update an already
-running named environment, add `--reload`; its panes and accepted plan survive.
-Reload inherits the daemon's existing environment, so changing a format override
-in the client shell does not change an already-running daemon's selection.
-Only the model's command format changes. Saved plans keep the same schema.
+For a first launch, omit `--reload`. No feature flags or separate environment are
+needed. Existing panes and accepted plans survive reload. Older sessions that
+used flat summaries start collecting plans after reload. Saved plans keep the
+same schema; old mode flags no longer control collection.
 The ownership updater retains the evaluated cache budget and one correction
 attempt. The activity label follows foreground focus, so a late background
 result can accrue usage without replacing the current activity.
@@ -29,7 +26,7 @@ Keep Activity summaries enabled in Clever Corgi. Select an agent, then use
 **prefix P**, the command menu's **Long-term plan**, or `corgi action plan`.
 The panel follows the tail automatically, with episode context and whole-plan
 totals. There is no selection or scrolling. Escape or a click outside closes it.
-Native OMP labels stay native; the optional plan uses their intent as evidence
+Native OMP labels stay native; the plan uses their intent as evidence
 without replacing them.
 
 The worker samples commentary, recent/running tools, bounded result excerpts,
@@ -59,8 +56,8 @@ bounds protect the daemon; they are not a complete transcript archive.
 
 The snapshot/checkpoint/handoff additions are defaulted and do not change the
 base branch’s wire or saved-format versions. Old data decodes to an empty plan; there is no migration.
-The preview flag survives handoff, with an explicitly supplied flag overriding
-saved mode. Older viewers ignore the optional plan.
+Old handoffs' preview flag is ignored. Older viewers ignore the optional plan
+field.
 
 ## Setbacks and new signal probes
 
@@ -371,12 +368,11 @@ shorter policy were rejected after semantic regressions. Examples also cover two
 distinct failures inside one batch and substantive explanations that announce
 future work.
 
-The no-citation line updater was the first default within the opt-in plan feature.
-It remains available with `CORGI_LONG_PLAN_LINES=1`; `0` selects compact JSON.
-To try the previous line updater in a separate Corgi environment:
+The no-citation line updater was the first default during the opt-in preview.
+It remains available in the replay eval:
 
 ```sh
-CORGI_LONG_PLAN=1 CORGI_LONG_PLAN_LINES=1 ./go.ts --env long-plan-lines --no-kill
+bun evals/long_plan/run.ts --manifest CASES.json --lines --cache-budget --out RUN_DIRECTORY
 ```
 
 #### Filesystem command experiment
@@ -549,7 +545,7 @@ are preserved. Pricing and thinking accounting follow the rules below.
 #### Explicit ownership experiment
 
 `--owner reviewed` tests filesystem commands with explicit event ownership. This
-prompt remains the eval control; the later `direct` variant now powers the opt-in
+prompt remains the eval control; the later `direct` variant now powers the
 application feature. The seven operators are `mkdir`, `set`, `cd`, `mv`, `error`,
 `set_owner`, and `set_focus`.
 
@@ -816,8 +812,7 @@ overlap; three runs do not establish a statistically reliable cost difference.
 One direct run initially paid for a cold prompt while the control's initial
 prompt was cached. This cost is retained in the mean, and initial cache receipts
 are exposed in the machine-readable report. `direct` is the recommended
-ownership variant and now runs when the optional long-plan mode is enabled.
-Flat summaries remain the application default.
+ownership variant and the application's default activity updater.
 
 Historical checks, aggregated across the three independent runs:
 
@@ -1096,7 +1091,7 @@ remain intact; review.json records these explicitly reviewed scorer changes.
 bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY
 # Replay main's flat summarizer on its corresponding frozen observations.
 bun evals/long_plan/main_efficiency.ts BASELINE_DIRECTORY MAIN_RESULTS_DIRECTORY
-# The line configuration matches the opt-in production plan updater.
+# Replay the previous line updater for comparison.
 # Runners retain JSON as their default control; pass these flags explicitly.
 bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --lines --cache-budget
 bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --json-ops
@@ -1244,7 +1239,8 @@ unchanged; reviewed scorecards and the browser show the stronger result.
 
 Release blockers remain: preserve failed attempts when failure and recovery
 arrive together, keep episode identity through follow-ups, and retain enough
-live evidence to match full replay quality. The integration stays opt-in.
+live evidence to match full replay quality. That evaluation used the opt-in
+preview; the integration is now the default activity updater.
 The earlier pilot below remains historical context, not the current scorecard.
 
 ## Product contract

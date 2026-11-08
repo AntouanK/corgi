@@ -6,6 +6,28 @@ import { View as ToolView } from "./tools";
 import { clone } from "../json";
 import { Path } from "../agents";
 import { Option, Selection, compare } from "../inference/models";
+
+test("new workers and handoffs from the flat summarizer collect long-term plans by default", () => {
+  const worker = new Worker();
+  worker.paused = true;
+  const saved = clone(worker.capture());
+  saved.plans = false;
+  const restored = Worker.restore(saved),
+    actor = new Registry().get("codex", "session");
+  actor.state.state = "working";
+  actor.state.setTurn("turn");
+  try {
+    for (const current of [worker, restored]) {
+      current.submit(actor, new Text("Inspect the saved document index"), null, []);
+      expect(current.plans).toBe(true);
+      expect(current.slots[0]?.request.road?.events.length).toBeGreaterThan(0);
+    }
+  } finally {
+    worker.stop();
+    restored.stop();
+  }
+});
+
 test("Pi inference defaults to the cheapest subscription and pins an explicit model and account across handoff", () => {
   const worker = new Worker("pi");
   worker.catalog.refresh = async () => {};
@@ -395,13 +417,13 @@ test("summary slots belong to conversations shared by multiple or detached attac
     expect(worker.slots[0]?.request.actor).toBe(actor.id);
     actor.state.state = "idle";
     worker.reconcile(registry.items);
-    expect(worker.slots[0]).toBeNull();
+    expect(worker.slots[0]?.request.road?.events.at(-1)?.text).toContain("lifecycle: idle");
   } finally {
     worker.stop();
   }
 });
 
-test("summary slots exist only while their conversation is working", () => {
+test("plan slots retain the final observation after a conversation stops working", () => {
   const registry = new Registry();
   const stays = registry.get("codex", "stays");
   const stops = registry.get("codex", "stops");
@@ -417,8 +439,9 @@ test("summary slots exist only while their conversation is working", () => {
     expect(worker.slots.filter(Boolean).length).toBe(2);
     stops.state.state = "idle";
     worker.reconcile(registry.items);
-    expect(worker.slots.filter(Boolean).length).toBe(1);
+    expect(worker.slots.filter(Boolean).length).toBe(2);
     expect(worker.slots[0]?.request.actor).toBe(stays.id);
+    expect(worker.slots[1]?.request.road?.events.at(-1)?.text).toContain("lifecycle: idle");
   } finally {
     worker.stop();
   }
@@ -477,7 +500,7 @@ test("the first summary of a turn sees the tools read with its commentary", () =
   }
 });
 
-test("native OMP activity is not queued or overwritten by old inference results", () => {
+test("native OMP activity feeds the plan without being overwritten by inferred labels", () => {
   const registry = new Registry(),
     omp = registry.get("omp", "native"),
     pi = registry.get("pi", "inferred"),
@@ -488,7 +511,7 @@ test("native OMP activity is not queued or overwritten by old inference results"
       actor.state.setTurn("turn");
       worker.submit(actor, new Text("Inspecting the protocol"), null, []);
     }
-    expect(worker.slots.filter(Boolean).map(slot => slot!.request.actor)).toEqual([pi.id]);
+    expect(worker.slots.filter(Boolean).map(slot => slot!.request.actor)).toEqual([omp.id, pi.id]);
     omp.state.setActivity("Creating live protocol transition smoke");
     const old = Object.assign(new Request(), {
       actor: omp.id,
@@ -498,10 +521,11 @@ test("native OMP activity is not queued or overwritten by old inference results"
     });
     expect(new Result(old, parseLabel("Inspecting protocol")).apply(omp)).toBe(false);
     expect(omp.state.activity.text()).toBe("Creating live protocol transition smoke");
-    worker.slots[1] = new Slot(old);
+    worker.slots[2] = new Slot(old);
     worker.reconcile(registry.items);
-    expect(worker.slots[1]).toBeNull();
-    expect(worker.slots[0]?.request.actor).toBe(pi.id);
+    expect(worker.slots[2]).toBeNull();
+    expect(worker.slots[0]?.request.road?.events.at(-1)?.text).toContain("Creating live protocol transition smoke");
+    expect(worker.slots[1]?.request.actor).toBe(pi.id);
   } finally {
     worker.stop();
   }
@@ -523,7 +547,7 @@ test("actor inference context survives turns and detachment but rejects stale re
     expect(actor.activity_timeline.len).toBe(1);
     actor.state.state = "idle";
     worker.reconcile(registry.items);
-    expect(worker.slots[0]).toBeNull();
+    expect(worker.slots[0]?.request.road?.events.at(-1)?.text).toContain("lifecycle: idle");
     actor.state.state = "working";
     actor.state.setTurn("turn-2");
     worker.submit(actor, evidence, null, []);

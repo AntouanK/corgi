@@ -25,15 +25,7 @@ const road = (): RoadInput => ({
   events: [1, 2].map(id => ({ id, turn: 1, line: id, at: "", kind: "tool", text: "Inspect saved links" })),
 });
 function backend(outputs: string[], usage = 1000n) {
-  const previous = process.env.CORGI_LONG_PLAN_LINES;
-  delete process.env.CORGI_LONG_PLAN_LINES;
-  let backend: Backend;
-  try {
-    backend = new Backend();
-  } finally {
-    if (previous === undefined) delete process.env.CORGI_LONG_PLAN_LINES;
-    else process.env.CORGI_LONG_PLAN_LINES = previous;
-  }
+  const backend = new Backend();
   const requests: Request[] = [];
   backend.pool.infer = async request => {
     requests.push(request);

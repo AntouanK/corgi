@@ -154,7 +154,6 @@ test("late plan results preserve native labels, and never change the new turn's 
   expect(result.apply(actor)).toBe(true);
   expect(actor.state.activity.text()).toBe("Native tool intent");
   const worker = new Worker();
-  worker.plans = true;
   worker.reconcile([actor]);
   expect(worker.slots.find(Boolean)?.request.road?.events.at(-1)?.text).toContain("Native tool intent");
   actor.state.state = "idle";

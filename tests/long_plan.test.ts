@@ -7,11 +7,7 @@ import { EXE, screen_text } from "./runtime";
 import * as owner from "../src/activity/plan_owner";
 
 class Plans extends Summaries {
-  async configure() {
-    await super.configure();
-    this.env.CORGI_LONG_PLAN = "1";
-    delete this.env.CORGI_LONG_PLAN_LINES;
-  }
+  legacy_summaries = false;
   async test_live_plan_reaches_the_viewer_and_keeps_its_episode_across_turns() {
     writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, ownership: true, bump: true }));
     await this.start_turn("first", false);
