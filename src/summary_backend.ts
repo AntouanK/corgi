@@ -3,9 +3,10 @@ import { model } from "./inference/setup";
 import type { Provider } from "./providers";
 import { getLogger } from "./log";
 import * as contract from "./activity/prompt";
-import type { Input as RoadInput } from "./activity/roadmap";
+import * as roadmap from "./activity/roadmap";
 import * as plan_protocol from "./activity/plan_protocol";
 import * as plan_lines from "./activity/plan_lines";
+import * as plan_owner from "./activity/plan_owner";
 import { Context, priceBudget } from "./activity/plan_context";
 import { Text } from "./agents";
 const log = getLogger("activity_summary");
@@ -28,8 +29,18 @@ export function outcome(request: bigint, discard: Discard | null) {
     reason: discard,
   });
 }
+function defaultPlanProtocol() {
+  switch (process.env.CORGI_LONG_PLAN_LINES) {
+    case "0":
+      return plan_protocol;
+    case "1":
+      return plan_lines;
+    default:
+      return plan_owner.variant();
+  }
+}
 export class Backend {
-  constructor(private readonly planProtocol = process.env.CORGI_LONG_PLAN_LINES === "0" ? plan_protocol : plan_lines) {}
+  constructor(private readonly planProtocol = defaultPlanProtocol()) {}
   pool = new Pool();
   next_request = 0n;
   private plans = new Map<string, Context>();
@@ -48,7 +59,7 @@ export class Backend {
   }
   private planContext(key: string) {
     const context =
-      this.plans.get(key) ?? new Context(this.planProtocol, this.planProtocol === plan_lines ? priceBudget : null);
+      this.plans.get(key) ?? new Context(this.planProtocol, this.planProtocol.schema === null ? priceBudget : null);
     this.plans.delete(key);
     this.plans.set(key, context);
     if (this.plans.size > 4) this.plans.delete(this.plans.keys().next().value!);
@@ -60,7 +71,7 @@ export class Backend {
     conversation: string,
     source: Source,
     stopping: any = false,
-    road: RoadInput | null = null,
+    road: roadmap.Input | null = null,
   ) {
     const request = ++this.next_request,
       context = { pid: process.pid, request, source, turn, conversation };
@@ -108,7 +119,7 @@ export class Backend {
         try {
           applied = this.planProtocol.apply(road, response.text());
         } catch (error) {
-          if (this.planProtocol !== plan_lines) throw error;
+          if (this.planProtocol.schema !== null) throw error;
           log.info("Plan correction requested", {
             event: "retry",
             context,
@@ -124,7 +135,7 @@ export class Backend {
         }
         roadContext!.accept(road, applied.state, response.usage);
         patch = JSON.stringify(applied.patch);
-        const id = applied.patch.spans.at(-1)?.node,
+        const id = roadmap.focusStep(applied.state.spans),
           current = applied.state.nodes.find(n => n.id === id);
         decision = { action: "new", label: current ? new Text(current.title) : null };
       } else decision = contract.parse(response.text(), input.phase);

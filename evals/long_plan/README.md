@@ -2,8 +2,10 @@
 
 An experimental eval and opt-in Corgi integration for a durable account of an
 agent's work. The replay and daemon share `src/activity/plan.ts`: the prompt,
-patch validation, hierarchy and setback contract. Flat summaries remain the default. The opt-in plan updater uses line operations;
-its semantic limitations and measured costs are recorded below.
+patch validation, hierarchy and setback contract. Flat summaries remain the
+default. The opt-in plan updater uses filesystem ownership commands with the
+evaluated `direct` prompt; its semantic limitations and measured costs are
+recorded below.
 
 ## Try the integration
 
@@ -12,6 +14,16 @@ From this checkout, start a separate environment:
 ```sh
 CORGI_LONG_PLAN=1 ./go.ts --env long-plan --no-kill
 ```
+
+Leave `CORGI_LONG_PLAN_LINES` unset to use the new ownership updater. Set it to
+`1` for the previous line updater or `0` for compact JSON. To update an already
+running named environment, add `--reload`; its panes and accepted plan survive.
+Reload inherits the daemon's existing environment, so changing a format override
+in the client shell does not change an already-running daemon's selection.
+Only the model's command format changes. Saved plans keep the same schema.
+The ownership updater retains the evaluated cache budget and one correction
+attempt. The activity label follows foreground focus, so a late background
+result can accrue usage without replacing the current activity.
 
 Keep Activity summaries enabled in Clever Corgi. Select an agent, then use
 **prefix P**, the command menu's **Long-term plan**, or `corgi action plan`.
@@ -359,12 +371,12 @@ shorter policy were rejected after semantic regressions. Examples also cover two
 distinct failures inside one batch and substantive explanations that announce
 future work.
 
-The no-citation line updater is the default within the opt-in plan feature. Set
-`CORGI_LONG_PLAN_LINES=0` to compare the older compact JSON updater. To try it in
-a separate Corgi environment:
+The no-citation line updater was the first default within the opt-in plan feature.
+It remains available with `CORGI_LONG_PLAN_LINES=1`; `0` selects compact JSON.
+To try the previous line updater in a separate Corgi environment:
 
 ```sh
-CORGI_LONG_PLAN=1 ./go.ts --env long-plan-lines --no-kill
+CORGI_LONG_PLAN=1 CORGI_LONG_PLAN_LINES=1 ./go.ts --env long-plan-lines --no-kill
 ```
 
 #### Filesystem command experiment
@@ -536,10 +548,10 @@ are preserved. Pricing and thinking accounting follow the rules below.
 
 #### Explicit ownership experiment
 
-`--owner reviewed` tests filesystem commands with explicit event ownership. It
-is eval-only. The seven operators are `mkdir`, `set`, `cd`, `mv`, `error`,
-`set_owner`, and `set_focus`. The application still uses the no-citation line
-format when its long-plan feature is enabled.
+`--owner reviewed` tests filesystem commands with explicit event ownership. This
+prompt remains the eval control; the later `direct` variant now powers the opt-in
+application feature. The seven operators are `mkdir`, `set`, `cd`, `mv`, `error`,
+`set_owner`, and `set_focus`.
 
 ```text
 BEGIN_PLAN
@@ -803,8 +815,9 @@ costs 5.4% more on the measured mean, about $0.00142 per 52 updates. The ranges
 overlap; three runs do not establish a statistically reliable cost difference.
 One direct run initially paid for a cold prompt while the control's initial
 prompt was cached. This cost is retained in the mean, and initial cache receipts
-are exposed in the machine-readable report. The current application default is
-unchanged; `direct` is the recommended **ownership eval** variant.
+are exposed in the machine-readable report. `direct` is the recommended
+ownership variant and now runs when the optional long-plan mode is enabled.
+Flat summaries remain the application default.
 
 Historical checks, aggregated across the three independent runs:
 
@@ -816,9 +829,11 @@ Historical checks, aggregated across the three independent runs:
 | Claude installer | 3/3 | 3/3 | 3/3 | 3/3 |
 
 The transient Pillow-to-ffmpeg recovery was retained in two of three direct runs,
-versus none of three control runs. Direct's third run also missed a zstd fairness
-finding and merged a substantive rebase into diagnosis. Two perfect 53/53 runs
-therefore did not establish reliability. All synthetic/focus checks passed in
+versus none of three control runs. Direct's third run also failed a zstd title
+check and merged a substantive rebase into diagnosis. The zstd step's generic
+title missed the regex, but its subtitle retained independent training sessions;
+that assertion does not establish that the fairness finding was lost. Two perfect
+53/53 runs therefore did not establish reliability. All synthetic/focus checks passed in
 all direct runs. Separate three-run targeted probes, prior holdouts and
 cancellation cases passed 72/72, 90/90 and 33/33 respectively, with all attempts
 retained. Bounded-support runs also passed those separate checks, but did not

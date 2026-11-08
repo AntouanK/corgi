@@ -124,7 +124,8 @@ for await (const line of createInterface({ input: process.stdin })) {
         from = input.range?.[0] ?? input.assign_from,
         to = input.range?.[1] ?? input.assign_through;
       if (input.tree) plan_nodes.clear();
-      for (const n of input.tree ?? input.tree_updates ?? []) plan_nodes.add(Array.isArray(n) ? n[0] : n.id);
+      for (const n of input.tree ?? input.tree_updates ?? [])
+        plan_nodes.add(Array.isArray(n) ? n[0].split("/").at(-1) : n.id);
       const node = (id: string, parent: string | null, kind: string, title: string) => ({
         id,
         parent,
@@ -152,8 +153,18 @@ for await (const line of createInterface({ input: process.stdin })) {
           node("s2", "e2", "step", "Check receipt totals"),
         );
       for (const n of additions) plan_nodes.add(n.id);
-      result =
-        !schema && !claudeSchema
+      result = control.ownership
+        ? [
+            "BEGIN_PLAN",
+            ...additions.flatMap(n => [
+              `mkdir /${n.parent ? n.parent + "/" : ""}${n.id} ${n.state} ${n.title}`,
+              `set /${n.id} subtitle ${n.subtitle}`,
+              ...(n.bump ? [`error /${n.id} ${n.bump.kind} ${n.bump.detail}`] : []),
+            ]),
+            `set_owner ${from}..${to} /${step}`,
+            ...Array.from({ length: to - from + 1 }, (_, i) => `set_focus ${from + i} /${step}`),
+          ].join("\n")
+        : !schema && !claudeSchema
           ? [
               "BEGIN_PLAN",
               ...additions.flatMap(n => [

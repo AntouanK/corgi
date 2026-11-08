@@ -4,18 +4,23 @@ import { Summaries } from "./activity_summary";
 import { Viewer } from "./viewer_client";
 import { A } from "./codex_titles";
 import { EXE, screen_text } from "./runtime";
+import * as owner from "../src/activity/plan_owner";
 
 class Plans extends Summaries {
   async configure() {
     await super.configure();
     this.env.CORGI_LONG_PLAN = "1";
+    delete this.env.CORGI_LONG_PLAN_LINES;
   }
   async test_live_plan_reaches_the_viewer_and_keeps_its_episode_across_turns() {
-    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, bump: true }));
+    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, ownership: true, bump: true }));
     await this.start_turn("first", false);
     const view = async () => (await this.session()).conversations.find((c: any) => c.agent.session === A).activity_plan;
     await this.until(async () => (await view()).nodes.length === 3);
     const first = await view();
+    const request = this.summary_logs().find((r: any) => r.event === "request");
+    this.assertEqual(request.instructions, owner.variant("direct").instructions);
+    this.assertIsNone(request.schema);
     this.assertEqual(
       first.nodes.map((n: any) => n.id),
       ["g", "e", "s"],
@@ -76,17 +81,17 @@ class Plans extends Summaries {
     );
   }
   async test_returned_work_appends_at_the_tail_and_survives_reload() {
-    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true }));
+    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, ownership: true }));
     const view = async () => (await this.session()).conversations.find((c: any) => c.agent.session === A).activity_plan;
     await this.start_turn("first", false);
     await this.until(async () => (await view()).visits?.length === 1);
-    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, plan_step: "other" }));
+    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, ownership: true, plan_step: "other" }));
     await this.start_turn("second", false);
     this.tools(1, "check receipts");
     await this.advance(10);
     await this.until(async () => (await view()).visits.at(-1)?.step === "s2");
     const earlier = (await view()).visits[0];
-    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true }));
+    writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, ownership: true }));
     await this.start_turn("return", false);
     this.tools(1, "check focus");
     await this.advance(10);
