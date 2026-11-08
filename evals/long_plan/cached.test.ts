@@ -4,6 +4,7 @@ import type { Input } from "../../src/activity/roadmap";
 import { Conversation } from "./cached";
 import { Backend } from "../../src/summary_backend";
 import { Response, type Request } from "../../src/inference/harness";
+import * as lines from "../../src/activity/plan_lines";
 import * as protocol from "../../src/activity/plan_protocol";
 
 const event = (id: number): plan.Event => ({ id, line: id, at: "", turn: 1, kind: "tool", text: "Run unit tests" });
@@ -135,8 +136,11 @@ test("rejected proposals and bounded conversation rollover reseed from authorita
   expect(retry.content).toBe(retry.fresh_content!);
 });
 
-test("the summary backend uses a stable contract and persists full validated nodes", async () => {
-  const backend = new Backend(),
+test.each([
+  ["JSON", protocol],
+  ["lines", lines],
+] as const)("the summary backend uses a stable %s contract and persists full validated nodes", async (_, wire) => {
+  const backend = new Backend(wire),
     requests: Request[] = [];
   let invalid = false;
   backend.pool.infer = async request => {
@@ -144,12 +148,16 @@ test("the summary backend uses a stable contract and persists full validated nod
     const content = JSON.parse(request.content),
       response = new Response();
     response.set(
-      JSON.stringify({
-        ops: [
-          ["=", "s", "d", content.range[1]],
-          ["@", content.range[1], invalid ? "missing" : "s", 1],
-        ],
-      }),
+      wire === lines
+        ? `BEGIN_PLAN
+state s d ${content.range[1]}
+at ${content.range[1]} ${invalid ? "missing" : "s"} 1`
+        : JSON.stringify({
+            ops: [
+              ["=", "s", "d", content.range[1]],
+              ["@", content.range[1], invalid ? "missing" : "s", 1],
+            ],
+          }),
     );
     return response;
   };
@@ -169,7 +177,8 @@ test("the summary backend uses a stable contract and persists full validated nod
     road = { ...road, state: plan.apply(road.state, first.patch!, road.events).state, events: [event(3)] };
     invalid = true;
     expect((await backend.infer(flat, "one", "activity:1", source, false, road)).decision).toBeNull();
-    expect(requests[1].schema).toBe(requests[0].schema);
+    expect(requests[0].schema).toBe(wire.schema);
+    expect(requests[1].schema).toBe(wire.schema);
     expect(requests[1].conversation).toBe(requests[0].conversation);
     invalid = false;
     expect((await backend.infer(flat, "one", "activity:1", source, false, road)).patch).toBeTruthy();

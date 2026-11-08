@@ -7,6 +7,7 @@ import * as history from "./history";
 import * as plan from "./plan";
 import * as scoring from "./score";
 import { Signals } from "./signals";
+import * as lines from "../../src/activity/plan_lines";
 import * as compact from "../../src/activity/plan_protocol";
 import { Audit } from "./usage_audit";
 import { Context } from "../../src/activity/plan_context";
@@ -56,10 +57,11 @@ async function main() {
   const manifest = option("--manifest"),
     ops = !args.includes("--flat") && !args.includes("--legacy") && !args.includes("--cached"),
     plain = args.includes("--plain"),
+    wire = args.includes("--lines") ? lines : compact,
     reuse = ops && !args.includes("--stateless");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--lines | --json-ops] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
     );
   const selection = option("--case"),
     model = option("--model", "claude:claude-haiku-5-5"),
@@ -108,6 +110,7 @@ async function main() {
       "../../src/activity/roadmap.ts",
       "cached.ts",
       "../../src/activity/plan_protocol.ts",
+      "../../src/activity/plan_lines.ts",
       "../../src/activity/plan_context.ts",
       "usage_audit.ts",
       "thinking.ts",
@@ -120,7 +123,15 @@ async function main() {
     timeout_ms: number;
     launches: Thinking["launches"];
     baseline: boolean;
-    transport: "stateless" | "cached-deltas" | "compact" | "compact-text" | "compact-deltas" | "compact-text-deltas";
+    transport:
+      | "lines"
+      | "line-deltas"
+      | "stateless"
+      | "cached-deltas"
+      | "compact"
+      | "compact-text"
+      | "compact-deltas"
+      | "compact-text-deltas";
     ablation: string;
     batch: number;
     manifest_hash: string;
@@ -137,22 +148,27 @@ async function main() {
     timeout_ms: timeout,
     launches: thinking?.launches ?? [],
     baseline,
-    transport: reuse
-      ? plain
-        ? "compact-text-deltas"
-        : "compact-deltas"
-      : ops
-        ? plain
-          ? "compact-text"
-          : "compact"
-        : baseline || !cachedConversation
-          ? "stateless"
-          : "cached-deltas",
+    transport:
+      ops && wire === lines
+        ? reuse
+          ? "line-deltas"
+          : "lines"
+        : reuse
+          ? plain
+            ? "compact-text-deltas"
+            : "compact-deltas"
+          : ops
+            ? plain
+              ? "compact-text"
+              : "compact"
+            : baseline || !cachedConversation
+              ? "stateless"
+              : "cached-deltas",
     ablation,
     batch: batchSize,
     manifest_hash: history.hash(raw),
-    instructions: baseline ? flat.instructions : ops ? compact.instructions : plan.instructions,
-    schema: baseline ? flat.schema : ops ? (plain ? null : compact.schema) : plan.schema,
+    instructions: baseline ? flat.instructions : ops ? wire.instructions : plan.instructions,
+    schema: baseline ? flat.schema : ops ? (plain ? null : wire.schema) : plan.schema,
     source_hashes: sourceHashes,
     cases: [],
     failures: 0,
@@ -226,7 +242,7 @@ async function main() {
         phaseId = "",
         phaseIndex = 0;
       const flatContext = new flat.Context();
-      const context = new Context(),
+      const context = new Context(wire),
         conversation = new Conversation();
       const cached: { state?: plan.State; through: number; raw?: string; error?: string }[] =
         resume && fs.existsSync(callsPath) ? JSON.parse(fs.readFileSync(callsPath, "utf8")) : [];
@@ -293,8 +309,8 @@ async function main() {
               ? context.prepare(road)
               : ops
                 ? {
-                    instructions: compact.instructions,
-                    schema: plain ? null : compact.schema,
+                    instructions: wire.instructions,
+                    schema: plain ? null : wire.schema,
                     content: compact.content(road),
                   }
                 : !cachedConversation
@@ -318,7 +334,7 @@ async function main() {
           });
           if (!baseline) {
             try {
-              ops ? compact.apply(road, rawResponse) : plan.apply(state, rawResponse, batch);
+              ops ? wire.apply(road, rawResponse) : plan.apply(state, rawResponse, batch);
             } catch (error) {
               const invalid = error instanceof Error ? error.message : String(error);
               errors.push(`Invalid first attempt: ${invalid}`);
@@ -397,7 +413,7 @@ async function main() {
             });
             state.through = events.at(-1)!.id;
           } else {
-            const applied = ops ? compact.apply(road, rawResponse) : plan.apply(state, rawResponse, batch);
+            const applied = ops ? wire.apply(road, rawResponse) : plan.apply(state, rawResponse, batch);
             state = applied.state;
             if (cachedConversation) conversation.accept(road, applied.state);
             if (reuse) context.accept(road, applied.state);

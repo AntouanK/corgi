@@ -7,6 +7,7 @@ const signature = (state: State) => JSON.stringify([state.through, state.nodes])
 
 /** Accepted state is authoritative. Missing conversations always receive a complete seed. */
 export class Context {
+  constructor(private readonly wire: Pick<Request, "instructions" | "schema"> = protocol) {}
   private previous: Input | null = null;
   private expected = "";
   private key = "";
@@ -36,8 +37,8 @@ export class Context {
       });
     }
     return {
-      instructions: protocol.instructions,
-      schema: protocol.schema,
+      instructions: this.wire.instructions,
+      schema: this.wire.schema,
       content,
       fresh_content: fresh,
       conversation: this.key,

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as plan from "./plan";
 import * as protocol from "./plan_protocol";
+import * as lines from "./plan_lines";
 import { Context } from "./plan_context";
 import type { Input } from "./roadmap";
 
@@ -13,6 +14,18 @@ const event = (id: number): plan.Event => ({
   text: "Test the repaired offsets",
 });
 const input = (): Input => ({ state: plan.empty(), events: [event(1)], support: [] });
+
+test("the line experiment and default JSON protocol receive identical evidence", () => {
+  const source = input(),
+    request = new Context(lines).prepare(source),
+    control = new Context().prepare(source);
+  expect(request.instructions).toBe(lines.instructions);
+  expect(request.schema).toBeNull();
+  expect(control.instructions).toBe(protocol.instructions);
+  expect(control.schema).toBe(protocol.schema);
+  expect(request.content).toBe(control.content);
+  expect(request.fresh_content).toBe(control.fresh_content);
+});
 
 test("cached compact updates retain constraints and setbacks, with full fallback on eviction", () => {
   const session = new Context(),

@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { Pool } from "../../src/inference/harness";
 import * as plan from "../../src/activity/plan";
 import * as roadmap from "../../src/activity/roadmap";
+import * as lines from "../../src/activity/plan_lines";
 import * as compact from "../../src/activity/plan_protocol";
 import { Audit } from "./usage_audit";
 import { Context } from "../../src/activity/plan_context";
@@ -16,10 +17,15 @@ const args = process.argv.slice(2),
   cached = args.includes("--cached"),
   ops = !args.includes("--legacy") && !cached,
   plain = args.includes("--plain"),
+  wire = args.includes("--lines") ? lines : compact,
   reuse = ops && !args.includes("--stateless"),
-  [directory, destination] = args.filter(arg => !["--cached", "--legacy", "--plain", "--stateless"].includes(arg));
+  [directory, destination] = args.filter(
+    arg => !["--cached", "--legacy", "--plain", "--stateless", "--json-ops", "--lines"].includes(arg),
+  );
 if (!directory || !destination)
-  throw Error("Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain]");
+  throw Error(
+    "Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain] [--lines | --json-ops]",
+  );
 const json = (value: unknown) => JSON.stringify(value, (_, v) => (typeof v === "bigint" ? String(v) : v), 2);
 fs.mkdirSync(destination, { recursive: true });
 for (const file of fs
@@ -37,7 +43,7 @@ for (const file of fs
     }),
     road = new roadmap.Roadmap(),
     session = new Conversation(),
-    context = new Context(),
+    context = new Context(wire),
     calls: unknown[] = [],
     audit = new Audit();
   const save = (complete: boolean) =>
@@ -48,19 +54,24 @@ for (const file of fs
         model: baseline.model,
         case: baseline.case,
         baseline: path.resolve(directory, file),
-        transport: reuse
-          ? plain
-            ? "compact-text-deltas"
-            : "compact-deltas"
-          : ops
-            ? plain
-              ? "compact-text"
-              : "compact"
-            : cached
-              ? "cached-deltas"
-              : "stateless",
-        instructions: ops ? compact.instructions : plan.instructions,
-        schema: ops ? (plain ? null : compact.schema) : plan.schema,
+        transport:
+          ops && wire === lines
+            ? reuse
+              ? "line-deltas"
+              : "lines"
+            : reuse
+              ? plain
+                ? "compact-text-deltas"
+                : "compact-deltas"
+              : ops
+                ? plain
+                  ? "compact-text"
+                  : "compact"
+                : cached
+                  ? "cached-deltas"
+                  : "stateless",
+        instructions: ops ? wire.instructions : plan.instructions,
+        schema: ops ? (plain ? null : wire.schema) : plan.schema,
         calls,
       }) + "\n",
     );
@@ -76,8 +87,8 @@ for (const file of fs
           ? context.prepare(input)
           : ops
             ? {
-                instructions: compact.instructions,
-                schema: plain ? null : compact.schema,
+                instructions: wire.instructions,
+                schema: plain ? null : wire.schema,
                 content: compact.content(input),
               }
             : cached
@@ -98,7 +109,7 @@ for (const file of fs
       };
       calls.push(call);
       save(false);
-      if (!road.apply(input, ops ? JSON.stringify(compact.apply(input, call.raw).patch) : call.raw))
+      if (!road.apply(input, ops ? JSON.stringify(wire.apply(input, call.raw).patch) : call.raw))
         throw Error("PlanApplyFailed");
       if (cached) session.accept(input, road.state);
       if (reuse) context.accept(input, road.state);

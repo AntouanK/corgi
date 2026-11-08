@@ -119,7 +119,7 @@ for await (const line of createInterface({ input: process.stdin })) {
           ? { action: control.action ?? (label === null ? "none" : "new"), label }
           : { label };
     if (schema && ("label" in control || "name" in control)) result = JSON.stringify(structured);
-    if (control.roadmap && ("nodes" in properties || "ops" in properties)) {
+    if (control.roadmap && ("nodes" in properties || "ops" in properties || !(codex ? schema : claudeSchema))) {
       const input = JSON.parse(content),
         from = input.range?.[0] ?? input.assign_from,
         to = input.range?.[1] ?? input.assign_through;
@@ -152,17 +152,28 @@ for await (const line of createInterface({ input: process.stdin })) {
           node("s2", "e2", "step", "Check receipt totals"),
         );
       for (const n of additions) plan_nodes.add(n.id);
-      result = JSON.stringify(
-        "ops" in properties
-          ? {
-              ops: [
-                ...additions.map(n => ["+", n.id, n.parent, n.title, n.subtitle, n.state, to]),
-                ...additions.filter(n => n.bump).map(n => ["!", n.id, n.bump!.kind, n.bump!.detail, to]),
-                ["@", to, step, 1],
-              ],
-            }
-          : { nodes: additions, spans: [{ from, to, node: step }] },
-      );
+      result =
+        !schema && !claudeSchema
+          ? [
+              "BEGIN_PLAN",
+              ...additions.flatMap(n => [
+                `new ${n.id} ${n.parent ?? "-"} ${n.state === "failed" ? "f" : "a"} ${to} ${n.title}`,
+                `sub ${n.id} ${to} ${n.subtitle}`,
+                ...(n.bump ? [`bump ${n.id} ${n.bump.kind} ${to} ${n.bump.detail}`] : []),
+              ]),
+              `at ${to} ${step} 1`,
+            ].join("\n")
+          : JSON.stringify(
+              "ops" in properties
+                ? {
+                    ops: [
+                      ...additions.map(n => ["+", n.id, n.parent, n.title, n.subtitle, n.state, to]),
+                      ...additions.filter(n => n.bump).map(n => ["!", n.id, n.bump!.kind, n.bump!.detail, to]),
+                      ["@", to, step, 1],
+                    ],
+                  }
+                : { nodes: additions, spans: [{ from, to, node: step }] },
+            );
     }
     if ("raw" in control) result = control.raw;
     if (content === "oversize") result = "x".repeat(9000);
