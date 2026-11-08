@@ -1,8 +1,8 @@
 import * as plan from "./plan";
 import type { Input } from "./roadmap";
 
-const states = { p: "planned", a: "active", d: "done", f: "failed", b: "blocked", x: "abandoned" } as const;
-const kinds = { g: "goal", e: "episode", s: "step" } as const;
+export const states = { p: "planned", a: "active", d: "done", f: "failed", b: "blocked", x: "abandoned" } as const;
+export const kinds = { g: "goal", e: "episode", s: "step" } as const;
 const code = (values: Record<string, string>, value: string) => Object.keys(values).find(k => values[k] === value)!;
 
 export function describeInput(
@@ -94,6 +94,7 @@ export type Envelope = {
   range: number[];
   correction?: string;
   rejected?: string;
+  cwd?: string;
 };
 export function envelope(input: Input): Envelope {
   return {

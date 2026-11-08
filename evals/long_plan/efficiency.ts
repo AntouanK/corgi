@@ -7,6 +7,7 @@ import { Tokens } from "../../src/usage/live";
 import * as plan from "../../src/activity/plan";
 import * as roadmap from "../../src/activity/roadmap";
 import * as lines from "../../src/activity/plan_lines";
+import * as filesystem from "../../src/activity/plan_fs";
 import * as compact from "../../src/activity/plan_protocol";
 import { Audit, combine } from "./usage_audit";
 import { Context, priceBudget } from "../../src/activity/plan_context";
@@ -20,18 +21,20 @@ const args = process.argv.slice(2),
   cached = args.includes("--cached"),
   ops = !args.includes("--legacy") && !cached,
   plain = args.includes("--plain"),
-  wire = args.includes("--lines") ? lines : compact,
+  wire = args.includes("--fs") ? filesystem : args.includes("--lines") ? lines : compact,
   reuse = ops && !args.includes("--stateless"),
   [directory, destination] = args.filter(
     (arg, i) =>
       i !== cacheTurnsAt &&
       (cacheTurnsAt < 0 || i !== cacheTurnsAt + 1) &&
-      !["--cached", "--legacy", "--plain", "--stateless", "--json-ops", "--lines", "--cache-budget"].includes(arg),
+      !["--cached", "--legacy", "--plain", "--stateless", "--json-ops", "--lines", "--fs", "--cache-budget"].includes(
+        arg,
+      ),
   );
 if (!Number.isInteger(cacheTurns) || cacheTurns < 1 || cacheTurns > 32) throw Error("InvalidCacheTurns");
 if (!directory || !destination)
   throw Error(
-    "Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain] [--lines | --json-ops] [--cache-budget] [--cache-turns N]",
+    "Usage: efficiency.ts BASELINE_DIRECTORY OUTPUT_DIRECTORY [--legacy | --cached | --stateless] [--plain] [--fs | --lines | --json-ops] [--cache-budget] [--cache-turns N]",
   );
 const json = (value: unknown) => JSON.stringify(value, (_, v) => (typeof v === "bigint" ? String(v) : v), 2);
 fs.mkdirSync(destination, { recursive: true });
@@ -64,10 +67,14 @@ for (const file of fs
         case: baseline.case,
         baseline: path.resolve(directory, file),
         transport:
-          ops && wire === lines
+          ops && (wire === lines || wire === filesystem)
             ? reuse
-              ? "line-deltas"
-              : "lines"
+              ? wire === filesystem
+                ? "filesystem-deltas"
+                : "line-deltas"
+              : wire === filesystem
+                ? "filesystem"
+                : "lines"
             : reuse
               ? plain
                 ? "compact-text-deltas"
@@ -129,7 +136,7 @@ for (const file of fs
       };
       calls.push(call);
       save(false);
-      if (reuse && wire === lines) {
+      if (reuse && (wire === lines || wire === filesystem)) {
         try {
           wire.apply(input, call.raw);
         } catch (error) {

@@ -367,6 +367,173 @@ a separate Corgi environment:
 CORGI_LONG_PLAN=1 ./go.ts --env long-plan-lines --no-kill
 ```
 
+#### Filesystem command experiment
+
+`--fs --cache-budget` selects the experimental path-based updater in both
+`run.ts` and `efficiency.ts`. It is not the application's default. The model
+receives accepted state plus new events and returns a small edit program:
+
+```text
+BEGIN_PLAN
+cd /e2
+set s11 done
+error s12 verification Resume test expected offset 20 but got 0
+mkdir retry active Repair resume offset
+set retry subtitle Retain the saved byte offset before restarting the transfer
+work retry
+```
+
+The current grammar has **eight operators**, down from the first trial's 12:
+
+| Operator | Forms and purpose |
+| --- | --- |
+| `mkdir` | `mkdir path state title` creates a node; also set its subtitle |
+| `set` | `set path done`, `set path title text`, `set path subtitle text` |
+| `cd` | `cd /e2` sets the directory for relative paths |
+| `mv` | `mv /s11 /e2/` changes the parent of a node created in this response |
+| `error` | `error path verification detail` records a problem; `error path resolved explanation` records recovery |
+| `work` | `work path [end_id]` assigns foreground events to a step |
+| `note` | `note path [end_id]` assigns passive results without moving focus |
+| `ignore` | `ignore [end_id]` leaves events unassigned |
+
+`set path skipped` explicitly abandons a canceled task or episode. It is distinct
+from ignoring events. The states are planned, active, done, failed, blocked, and
+skipped. Titles, subtitles and explanations occupy the remainder of their line;
+quotes, backslashes and shell-looking text are literal. These commands never run
+in a shell. The parser rejects the older `skip`, `describe`, `title`, `error_set`
+and `error_resolve` commands instead of maintaining a second vocabulary.
+
+Paths use stable IDs: `/g1/e2/s11`, `/e2/s11`, and `/s11` identify the same node.
+A supplied parent must actually match. Relative paths resolve beneath the current
+directory; only absolute paths provide global ID shortcuts. The directory resets
+to `/` on **every response**, including repairs and cache resets. The final trial
+uses explicit targets instead of `_`: earlier runs repeatedly treated the alias
+as persistent across updates. `mv` is restricted to unaccepted draft nodes because moving accepted
+nodes would change how past tokens roll up to episodes. It cannot rename nodes.
+
+Attribution endpoints are inclusive and increasing. Omit the endpoint to consume
+all remaining events; an optional `through` before the number is accepted.
+For a batch containing events 6–8, `ignore 6`, `note /s1 7`, and `work /s2`
+cover those three events in order. Adding a planned node does not require an
+extra attribution command. A trailing `ignore` with no events remaining is a
+recorded no-op. Repeating the most recent attribution with the identical endpoint,
+owner and foreground/passive mode is also a recorded no-op, even if node edits
+intervene. Changed owners, changed focus modes and incomplete coverage still
+reject atomically. An explicit two-number range is normalized only when its start
+exactly matches the next unassigned event; gaps and overlaps remain errors.
+
+An error belongs to its original attempt. Resolving it preserves its category,
+original failure detail, and failed status; the recovery explanation becomes
+that step's subtitle. A successful retry gets its own step. State rows sent to
+the model contain full paths and readable kind/state words, with no citation
+arrays. The same literal event encoding, canonical reducer, cache budget,
+one-correction policy, and receipt accounting are used as for the line control.
+
+`fs_probe.json` adds a synthetic cancellation and recovery case: a throughput
+benchmark is deliberately stopped while a CSV quoting failure is repaired.
+It checks canceled status, absence of an invented error on the intentional stop,
+preservation of the failed test, successful recovery and episode continuity.
+The existing real/synthetic corpora and their rubrics remain unchanged.
+
+```sh
+bun evals/long_plan/run.ts --manifest evals/long_plan/fs_probe.json --batch 4 \
+  --fs --cache-budget --model claude:claude-haiku-5-5 --effort low --out NEW_RESULTS
+bun evals/long_plan/efficiency.ts BASELINE_DIRECTORY NEW_RESULTS_DIRECTORY --fs --cache-budget
+```
+
+#### Filesystem experiment results
+
+The selected eight-operator trial is `fs-v7`. Two repetitions cover the same
+198 checkpoints over four historical conversations and seventeen synthetic/focus
+cases as the no-citation line control. Both use Haiku 5.5 at low effort, the same
+90k/16-update cache policy, one correction, and the same audited 106 semantic plus
+126 structural checks. Controls were not re-prompted or rescored with easier
+criteria. Completed, equal-workload runs include every rejected attempt in cost.
+
+| Two runs / 198 updates | Previous no-cite lines | Filesystem v7 |
+| --- | ---: | ---: |
+| Semantic checks | 102/106 | 99/106 |
+| Structural checks | 126/126 | 126/126 |
+| Rejected attempts, successfully corrected | 3 | 6 |
+| Updates lost after correction | 0 | 0 |
+| Uncached input, including writes | 642,375 | 623,848 |
+| Cached input | 4,987,090 | 5,295,499 |
+| Output, including thinking | 143,743 | 131,239 |
+| Thinking subset | 124,892 | 109,872 |
+| API-equivalent cost | $0.25018 | $0.24330 |
+
+That is 2.7% less cost on the large replay batches, with three fewer semantic
+checks passing. It is not evidence of a quality improvement. Both filesystem
+runs missed the transient Pillow-to-ffmpeg recovery in the website conversation
+and failed to separate an unrelated README request into a new goal. One also
+lost a concrete animation component from its episode label. Three corrected
+rejections involved relative paths, one malformed coverage, one trailing prose,
+and one attribution to a planned step. Both runs retained token conservation.
+
+The more representative production-window comparison is essentially flat:
+
+| Mean per 52 matching production updates, two runs each | Previous no-cite lines | Filesystem v7 |
+| --- | ---: | ---: |
+| Uncached input | 53,687 | 52,485 |
+| Cached input | 575,250 | 618,833 |
+| Output, including thinking | 15,480 | 15,288 |
+| Thinking subset | 12,677 | 11,905 |
+| API-equivalent cost | $0.02422 | $0.02432 |
+
+Production cost rose 0.4%; one correction was needed across each format's 104
+updates. Thinking was 77.9% of filesystem output. The separate cancellation probe
+passed 11/11 checks over six updates after one path correction. The four existing
+holdout cases completed all fourteen updates with no rejected programs, but
+passed 28/30 checks: one TODO-only request became active and its first intended
+step was no longer planned. The prior no-cite holdouts passed 29/30. These misses
+are semantic judgments, not parser failures. **Keep this format eval-only.**
+
+The initial draft used twelve operators and `_`. Field setters merged into
+`set`; `skip` became `set path skipped`; error recording and recovery merged into
+`error`. `_` was removed after several runs incorrectly carried it across update
+boundaries. An extra `ignore` after full coverage, an exact repeated assignment,
+an omitted `through`, and a valid explicit start/end range now normalize without
+changing event ownership. Invalid paths and conflicting coverage still fail
+closed. This avoids retries for harmless redundancy without guessing a target.
+The v4 and v6 trials each lost an update after both attempts were rejected;
+their incomplete replays are retained and excluded from equal-workload cost
+comparisons. The v4 failure reused an existing ID in another directory; the v6
+failure used an explicit range after an invalid `cd` into a step. Corrections now
+explain globally unique IDs and directory kinds, and range normalization verifies
+the start against the actual coverage cursor.
+
+Raw output from the cancellation probe, checkpoint 7:
+
+```text
+BEGIN_PLAN
+cd /g1/e1
+work s1 4
+set s2 active
+error s2 verification Quoted-comma name produced an extra CSV column
+work s2 6
+note s2 7
+```
+
+Its later recovery, checkpoint 17:
+
+```text
+BEGIN_PLAN
+set /s4 done
+set /s5 done
+set /s5 subtitle Unicode, embedded quotes, and quoted commas pass
+error /s2 resolved Retry passes after comma-quoting repair; original failure kept
+set /e1 done
+set /g1 done
+work /s5
+```
+
+Artifacts under `evals/results/long-plan/line-format/` are
+`fs-v7-{1,2}-{real,synthetic,focus}`, `live-fs-v7-{1,2}`, `fs-v7-probe`,
+`fs-v7-holdout`, `fs-final-comparison.json`, and `fs-window-costs.json`.
+Earlier trials and source snapshots are retained there. The raw command programs,
+canonical snapshots, source hashes, accepted corrections and final usage receipts
+are preserved. Pricing and thinking accounting follow the rules below.
+
 #### Cost accounting
 
 Use API-equivalent dollars, not the sum of input and output tokens. Rates checked

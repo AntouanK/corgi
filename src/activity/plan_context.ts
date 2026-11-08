@@ -35,6 +35,7 @@ export class Context {
   constructor(
     private readonly wire: Pick<Request, "instructions" | "schema"> & {
       encode?: (input: protocol.Envelope) => string;
+      hint?: (reason: string) => string;
     } = protocol,
     private readonly budget: { tokens: number; turns: number } | null = null,
   ) {}
@@ -100,7 +101,7 @@ export class Context {
   }
 
   retry(input: Input, rejected: string, reason: string, usage: Pick<Tokens, "input" | "output">): Request {
-    const correction = `The previous response was rejected atomically: ${reason}. ${hint(reason)} NONE of its edits or assignments were applied. accepted lists the unchanged authoritative nodes; never recreate those IDs. Replace the ENTIRE response for events ${input.events[0].id} through ${input.events.at(-1)!.id}, using the original evidence still in this conversation. Return only the corrected operations.`,
+    const correction = `The previous response was rejected atomically: ${reason}. ${(this.wire.hint ?? hint)(reason)} NONE of its edits or assignments were applied. accepted lists the unchanged authoritative nodes; never recreate those IDs. Replace the ENTIRE response for events ${input.events[0].id} through ${input.events.at(-1)!.id}, using the original evidence still in this conversation. Return only the corrected operations.`,
       content = this.encode({
         correction,
         accepted: input.state.nodes.map(protocol.node),
