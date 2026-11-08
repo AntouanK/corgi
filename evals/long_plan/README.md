@@ -22,10 +22,11 @@ The ownership updater retains the evaluated cache budget and one correction
 attempt. The activity label follows foreground focus, so a late background
 result can accrue usage without replacing the current activity.
 
-Keep Activity summaries enabled in Clever Corgi. Select an agent, then use
-**prefix P**, the command menu's **Long-term plan**, or `corgi action plan`.
-The panel follows the tail automatically, with episode context and whole-plan
-totals. There is no selection or scrolling. Escape or a click outside closes it.
+Keep Activity summaries enabled in Clever Corgi. **Hover an agent in the
+sidebar** to see its plan in the existing tooltip, replacing the flat recent
+activity list. The tree follows the tail automatically, with episode context.
+The original Total row, provider, context, subagents and TODOs stay in the card.
+There is no selection or scrolling; moving the pointer away closes the tooltip.
 Native OMP labels stay native; the plan uses their intent as evidence
 without replacing them.
 
@@ -41,12 +42,14 @@ Live costs are observed intervals, not a reconstructed lifetime ledger. The
 first usage sample establishes a baseline. Later usage rolls up once through
 step → episode → goal; cached input is part of input. Unassigned intervals,
 missing coverage and buffer overrun stay explicit. Child-agent costs and private
-summarizer costs are excluded. The UI marks live coverage with ≥. Attribution
+summarizer costs are excluded. Attribution
 to a step is inferred, even when its observed token count is exact.
 Tool calls follow the same observed-interval rollup, independently of whether
 token usage has arrived. Missing usage fields stay blank, including tool counts
-in older saved plans. The total row covers the whole observed plan. Cached
-input is included in tokens, never added a second time.
+in older saved plans. The tooltip keeps its original session Total row.
+Tokens shows uncached input plus output, and Cached shows cached input
+separately, using the same columns for totals and plan rows. Plan rows cover
+the intervals the updater observed; the session total may include earlier work.
 
 Plans, pending observations and costs survive checkpoint/handoff. Cold recovery
 establishes a fresh usage baseline. Queues retain 32 observations and 128 short

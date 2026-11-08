@@ -37,7 +37,6 @@ const corgiPrefix: Binding[] = [
   { key: 123, mods: {}, prefixed: true, action: { name: "workspace-prev" } },
   { key: 119, mods: {}, prefixed: true, action: { name: "choose-workspace" } },
   { key: 82, mods: {}, prefixed: true, action: { name: "resources" } },
-  { key: 80, mods: {}, prefixed: true, action: { name: "plan" } },
   { key: 103, mods: {}, prefixed: true, action: { name: "find-agent" } },
   { key: 93, mods: {}, prefixed: true, action: { name: "next-agent" } },
   { key: 91, mods: {}, prefixed: true, action: { name: "prev-agent" } },

@@ -4,7 +4,6 @@ import * as archiveSummary from "./archive_summary";
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
 import { homedir, hostname } from "node:os";
-import * as planView from "./plan_view";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -458,7 +457,6 @@ export class Controller {
   startup_card: startupCard.State | null = null;
   private startup_second = 0;
   resource_card = new resourceTooltip.State();
-  plan_card = new planView.State();
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
   sidebar_drag: "width" | "split" | null = null;
@@ -1565,7 +1563,6 @@ export class Controller {
     return (
       this.startup_card !== null ||
       this.archive_dialog !== null ||
-      this.plan_card.actor !== 0 ||
       this.worktree_card.pinned ||
       this.resource_card.pinned ||
       this.git_card.pinned ||
@@ -2009,7 +2006,6 @@ export class Controller {
     this.leaveSidebar();
     this.worktree_card.clear();
     this.resource_card.release();
-    this.plan_card.clear();
     this.git_card.release();
     this.help_visible = false;
     this.link_tooltip.cancel();
@@ -2550,21 +2546,6 @@ export class Controller {
         this.worktree_card.clear();
         this.worktree_agents.previewed = null;
         this.link_tooltip.cancel();
-        this.dirty = true;
-        break;
-      case "plan": {
-        const id = Number(act.value) || this.focused()?.agent.conversation || 0;
-        if (!this.runtime.conversations.some(c => c.id === id)) {
-          this.notice(i18n.t`Select an agent to view its plan`);
-          break;
-        }
-        this.closeMenu();
-        this.plan_card.actor = id;
-        this.dirty = true;
-        break;
-      }
-      case "plan-close":
-        this.plan_card.clear();
         this.dirty = true;
         break;
       case "resources": {
@@ -5320,11 +5301,6 @@ export class Controller {
       if (act) await this.perform(act);
       return;
     }
-    if (this.plan_card.actor) {
-      const act = planView.key(String.fromCharCode(byte));
-      if (act) await this.perform(act);
-      return;
-    }
     if (this.resource_card.pinned) {
       const act = this.resourceKey(String.fromCharCode(byte));
       if (act) await this.perform(act);
@@ -6329,9 +6305,6 @@ export class Controller {
       } else if (this.startup_card) {
         const act = this.startup_card.key(text);
         if (act) await this.perform(act);
-      } else if (this.plan_card.actor) {
-        const act = planView.key(parsed_key ?? text);
-        if (act) await this.perform(act);
       } else if (this.resource_card.pinned) {
         const act = this.resourceKey(text);
         if (act) await this.perform(act);
@@ -6672,11 +6645,6 @@ export class Controller {
       this.pending_open = null;
       if (open && !this.pressesLink(open, x, y) && this.focused()?.id === open.pane)
         this.queueEffect({ open_url: open.url });
-    }
-    if (this.plan_card.actor) {
-      if (!release && button === 0 && !planView.geometry(this.width, this.height).contains(x, y))
-        await this.perform({ name: "plan-close" });
-      return;
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
     // A double-click needs two left presses on one sidebar cell with the
@@ -8837,7 +8805,6 @@ export class Controller {
         startup_card: this.startup_card,
         resources: this.runtime.resources,
         resource_hover: this.link_tooltip.target?.resource ?? null,
-        plan_card: this.plan_card.actor ? this.plan_card : null,
         resource_card: (tooltip_ready || this.resource_card.pinned) && detail !== null ? this.resource_card : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,

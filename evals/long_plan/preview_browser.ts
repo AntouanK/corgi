@@ -1,7 +1,5 @@
-import * as planView from "../../src/plan_view";
 import * as palette from "../../src/palette";
-import * as roadmap from "../../src/activity/roadmap";
-import { Writer } from "../../src/text";
+import type * as roadmap from "../../src/activity/roadmap";
 import { grid } from "../../site/terminal";
 
 type Replay = {
@@ -15,7 +13,7 @@ type Replay = {
   ablation: string;
   model: string;
   source: string;
-  checkpoints: { through: number; view: roadmap.Snapshot; running: boolean | null }[];
+  checkpoints: { through: number; view: roadmap.Snapshot; running: boolean | null; frames: Record<string, string> }[];
   failures: string[];
 };
 const data: Replay[] = JSON.parse(document.querySelector("#data")!.textContent!);
@@ -51,15 +49,15 @@ for (const cohort of ["long", "routine", "excerpt", "probe"] as const) {
 const current = () => data.find(c => c.key === session.value)!;
 const view = () => current().checkpoints[Number(slider.value)].view;
 const running = () => current().checkpoints[Number(slider.value)].running;
+const frame = () => current().checkpoints[Number(slider.value)].frames[`${cols}x${rows}`];
 const color = (name: string | null, fallback: palette.Token) =>
   name?.startsWith("#") ? name : `rgb(${palette.colors[(name ?? fallback) as palette.Token].join(",")})`;
 function render() {
-  cols = Math.max(30, Math.min(narrow ? 64 : 116, Math.floor((document.querySelector("#wrap")!.clientWidth - 2) / 9)));
+  const available = Math.min(narrow ? 64 : 88, Math.floor((document.querySelector("#wrap")!.clientWidth - 2) / 9));
+  cols = available >= 88 ? 88 : available >= 64 ? 64 : 40;
   rows = Number(height.value);
-  const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().label, view(), running());
   const fragment = document.createDocumentFragment();
-  for (const row of grid(out.buffered(), cols, rows)) {
+  for (const row of grid(frame(), cols, rows)) {
     const line = document.createElement("div");
     line.className = "screen-row";
     for (const [ch, fg, bg, bold, , , strike] of row) {
@@ -112,10 +110,8 @@ document.querySelector("#narrow")!.addEventListener("click", () => {
   render();
 });
 document.querySelector("#ansi")!.addEventListener("click", () => {
-  const out = new Writer();
-  planView.draw(out, planView.geometry(cols, rows), current().label, view(), running());
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([out.buffered()], { type: "text/plain" }));
+  a.href = URL.createObjectURL(new Blob([frame()], { type: "text/plain" }));
   a.download = "corgi-plan.ansi";
   a.click();
   URL.revokeObjectURL(a.href);

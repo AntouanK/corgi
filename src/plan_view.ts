@@ -3,14 +3,7 @@ import type { Node } from "./activity/plan";
 import * as palette from "./palette";
 import * as text from "./text";
 import { Rect } from "./layout";
-import type { Action } from "./action";
 
-export class State {
-  actor = 0;
-  clear() {
-    this.actor = 0;
-  }
-}
 type Row =
   | { kind: "node"; node: Node; depth: number; counts?: roadmap.Counts; current?: boolean; returned?: boolean }
   | { kind: "more"; parent: Node; count: number }
@@ -143,8 +136,71 @@ export function tail(view: roadmap.Snapshot, count: number, running: boolean | n
   if (pending) rows.push(pending);
   return { rows, hidden: all.filter(r => r.kind === "node").length - rows.filter(r => r.kind === "node").length };
 }
-export function key(input: string): Action | null {
-  return input === "\x1b" ? { name: "plan-close" } : null;
+export const height = (rows: Row[]) => rows.reduce((sum, row) => sum + rowHeight(row), 0);
+export function goal(view: roadmap.Snapshot) {
+  const episode = view.nodes.find(n => n.id === view.focus);
+  return view.nodes.find(n => n.id === episode?.parent) ?? view.nodes.findLast(n => n.kind === "goal");
+}
+export function drawRows(
+  view: roadmap.Snapshot,
+  rows: Row[],
+  width: number,
+  paint: {
+    line: (row: number, label: string, counts: roadmap.Counts | null, tone: palette.Token) => void;
+    mark: (row: number, column: number, value: string, tone: palette.Token, bold?: boolean, strike?: boolean) => void;
+  },
+) {
+  let y = 0;
+  rows.forEach((entry, i) => {
+    const next = rows[i + 1],
+      last = !next || (next.kind === "node" && next.depth === 0) || (next.kind === "pending" && next.parent === null);
+    if (entry.kind !== "node") {
+      if (entry.kind === "pending" && entry.active)
+        paint.line(y++, entry.parent ? "    ┣▶ …" : "  ▶ …", null, "accent");
+      else
+        paint.line(
+          y++,
+          `    ${last ? "╰" : "├"} …${entry.kind === "more" ? ` ${entry.count} more` : ""}`,
+          null,
+          "faint",
+        );
+      return;
+    }
+    const { node, depth } = entry;
+    const focused = depth === 0 && (entry.current ?? (node.id === view.focus && node.state === "active")),
+      current = depth === 1 && (entry.current ?? currentStep(view, node)),
+      closed =
+        node.state === "done" ||
+        node.state === "abandoned" ||
+        (node.state === "failed" && node.bump?.state === "resolved");
+    let tone: palette.Token = "text";
+    if (current) tone = "accent";
+    else if (focused) tone = "strong";
+    else if (closed) tone = "muted";
+    else if (node.state === "planned") tone = "faint";
+    const branch = current ? "┣" : last ? "╰" : "├",
+      prefix = depth ? "    " + branch : "  ",
+      active = focused || current,
+      issue = node.bump ? (node.bump.state === "resolved" ? "!✓" : "!") : "",
+      marker = (active ? "▶" : "") + issue || " ",
+      counts = entry.counts ?? view.counts[node.id] ?? roadmap.zero(),
+      suffix = node.state === "planned" ? " (planned)" : "";
+    paint.line(y, `${prefix}${marker} ${entry.returned ? "↩ " : ""}${node.title}${suffix}`, counts, tone);
+    if (depth) paint.mark(y, 4, branch, current ? "accent" : "line", current);
+    if (active) paint.mark(y, prefix.length, "▶", "accent", true);
+    if (issue) paint.mark(y, prefix.length + (active ? 1 : 0), issue, node.bump!.state === "open" ? "warm" : "muted");
+    y++;
+    if (node.bump) {
+      const resolved = node.bump.state === "resolved",
+        column = prefix.length + marker.length + 1,
+        detail = text.ellipsis(node.bump.detail, width - column);
+      paint.line(y, " ".repeat(column) + detail, null, resolved ? "faint" : "muted");
+      if (resolved) paint.mark(y, column, detail, "faint", false, true);
+      if (!last || current) paint.mark(y, 4, current ? "┃" : "│", current ? "accent" : "line");
+      y++;
+    }
+  });
+  return y;
 }
 export function geometry(cols: number, rows: number) {
   const w = Math.max(1, Math.min(112, cols - 2)),
@@ -204,47 +260,16 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
     const style = new palette.Style({ fg: color, bg: "surface", bold, strike });
     w.write(`\x1b[${rect.y + y + 1};${rect.x + column + 1}H${style.sgr()}${value}`);
   };
-  rows.forEach((entry, i) => {
-    const next = rows[i + 1],
-      last = !next || (next.kind === "node" && next.depth === 0) || (next.kind === "pending" && next.parent === null);
-    if (entry.kind !== "node") {
-      if (entry.kind === "pending" && entry.active) line(y++, entry.parent ? "    ┣▶ …" : "  ▶ …", "accent");
-      else line(y++, `    ${last ? "╰" : "├"} …${entry.kind === "more" ? ` ${entry.count} more` : ""}`, "faint");
-      return;
-    }
-    const { node, depth } = entry;
-    const focused = depth === 0 && (entry.current ?? (node.id === view.focus && node.state === "active")),
-      current = depth === 1 && (entry.current ?? currentStep(view, node)),
-      closed =
-        node.state === "done" ||
-        node.state === "abandoned" ||
-        (node.state === "failed" && node.bump?.state === "resolved");
-    let tone: palette.Token = "text";
-    if (current) tone = "accent";
-    else if (focused) tone = "strong";
-    else if (closed) tone = "muted";
-    else if (node.state === "planned") tone = "faint";
-    const branch = current ? "┣" : last ? "╰" : "├",
-      prefix = depth ? "    " + branch : "  ",
-      active = focused || current,
-      issue = node.bump ? (node.bump.state === "resolved" ? "!✓" : "!") : "",
-      marker = (active ? "▶" : "") + issue || " ",
-      counts = entry.counts ?? view.counts[node.id] ?? roadmap.zero(),
-      suffix = node.state === "planned" ? " (planned)" : "";
-    row(y, `${prefix}${marker} ${entry.returned ? "↩ " : ""}${node.title}${suffix}`, stats(counts), tone);
-    if (depth) mark(4, branch, current ? "accent" : "line", current);
-    if (active) mark(prefix.length, "▶", "accent", true);
-    if (issue) mark(prefix.length + (active ? 1 : 0), issue, node.bump!.state === "open" ? "warm" : "muted");
-    y++;
-    if (node.bump) {
-      const resolved = node.bump.state === "resolved",
-        column = prefix.length + marker.length + 1,
-        detail = text.ellipsis(node.bump.detail, rect.w - column);
-      line(y, " ".repeat(column) + detail, resolved ? "faint" : "muted");
-      if (resolved) mark(column, detail, "faint", false, true);
-      if (!last || current) mark(4, current ? "┃" : "│", current ? "accent" : "line");
-      y++;
-    }
+  drawRows(view, rows, rect.w, {
+    line: (rowIndex, label, counts, tone) => {
+      y = 4 + rowIndex;
+      if (counts) row(y, label, stats(counts), tone);
+      else line(y, label, tone);
+    },
+    mark: (rowIndex, column, value, tone, bold, strike) => {
+      y = 4 + rowIndex;
+      mark(column, value, tone, bold, strike);
+    },
   });
   if (!rows.length) line(4, "  …", "faint");
   line(rect.h - 3, "─".repeat(rect.w), "line");

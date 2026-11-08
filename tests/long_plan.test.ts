@@ -8,6 +8,13 @@ import * as owner from "../src/activity/plan_owner";
 
 class Plans extends Summaries {
   legacy_summaries = false;
+  async hover(viewer: Viewer) {
+    const rows = screen_text((await viewer.poll()).data, 100, 30),
+      y = rows.findIndex((row, i) => i > 15 && row.includes("Codex"));
+    this.assertTrue(y >= 0);
+    await viewer.input(`\x1b[<35;6;${y + 1}M`);
+    await viewer.advance(0.6);
+  }
   async test_live_plan_reaches_the_viewer_and_keeps_its_episode_across_turns() {
     writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, ownership: true, bump: true }));
     await this.start_turn("first", false);
@@ -27,15 +34,14 @@ class Plans extends Summaries {
     const viewer = await Viewer.create(this);
     const screen = async () => screen_text((await viewer.poll()).data, 100, 30).join("\n");
     try {
-      await viewer.input("\x02P");
+      await this.hover(viewer);
       await this.until(async () => (await screen()).includes("Restore terminal focus"));
-      const beforeNavigation = await screen();
-      this.assertEqual((beforeNavigation.match(/▶/g) ?? []).length, 2);
-      this.assertTrue(beforeNavigation.includes("▶ …"));
-      await viewer.input("\x1b[6~");
-      await viewer.input("\r");
-      this.assertEqual(await screen(), beforeNavigation);
-      await viewer.input("\x1b");
+      const tooltip = await screen();
+      for (const label of ["Total", "Tokens", "Tools", "Cached", "Existing focus test fails", "▶ …"])
+        this.assertIn(label, tooltip);
+      this.assertNotIn("Esc close", tooltip);
+      await viewer.input("\x1b[<35;99;1M");
+      await viewer.advance(0.6);
       await this.until(async () => !(await screen()).includes("Restore terminal focus"));
     } finally {
       await viewer.close();
@@ -99,11 +105,10 @@ class Plans extends Summaries {
     this.assertEqual((await view()).visits[0], earlier);
     const viewer = await Viewer.create(this);
     try {
-      await viewer.input("\x02P");
+      await this.hover(viewer);
       const screen = async () => screen_text((await viewer.poll()).data, 100, 30).join("\n");
       await this.until(async () => (await screen()).includes("▶ ↩ Repair focus transitions"));
       const drawn = await screen();
-      this.assertEqual((drawn.match(/▶/g) ?? []).length, 2);
       this.assertTrue(drawn.lastIndexOf("Trace focus changes") > drawn.indexOf("Check receipt totals"));
       const before = (await view()).visits;
       await this.rpc({ op: "server.reload", executable: EXE });

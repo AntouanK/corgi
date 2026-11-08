@@ -289,13 +289,15 @@ because missing items may still be open.
 Activity summaries collect goal → episode → step plans through the activity
 worker by default. No feature flag or separate environment is needed, including
 after reloading a session that used flat summaries. The plan is separate from
-lifecycle and native OMP activity labels. Select an agent and use prefix P or the command menu's
-Long-term plan to inspect it. The tree has two levels, episodes and steps,
+lifecycle and native OMP activity labels. Hover an agent in the sidebar to see
+its plan in the existing tooltip, replacing the flat recent activity list.
+The tree has two levels, episodes and steps,
 with one row per item and the goal in the header. A setback adds one explanation
 line beneath its step. It follows the tail automatically,
 keeping the episode heading above its latest steps. An earlier-item count shows
-omitted history. The footer totals cover all observed work, including hidden rows.
-There is no selection or scrolling; Escape or a click outside closes the panel.
+omitted history. The tooltip's original Total row stays above the plan;
+provider, context, subagents and TODOs stay in the same card. There is no
+selection or scrolling; moving the pointer away closes the tooltip.
 
 TODO lists express intent. Bounded tool outcomes and commentary support
 problems marked ! only on the affected step. Each problem has a short explanation

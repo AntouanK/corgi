@@ -31,17 +31,6 @@ test("every preset can bind the last visited tab and workspace actions", () => {
   }
 });
 
-test("plan shortcuts can be customized and restored for the selected agent", () => {
-  const config = custom.parse({ plan: "ctrl+alt+p" });
-  const table = custom.resolve("corgi", config);
-  expect(bindings.lookup(table, true, 80)).toBeNull();
-  expect(bindings.chord(table, false, keys.parseChord("ctrl+alt+p")!)).toEqual({ name: "plan" });
-  expect(custom.entries("corgi", config).filter(e => e.action.name === "plan")).toHaveLength(1);
-  expect(custom.id(custom.target("plan"))).toBe("plan");
-  expect(custom.id(custom.target("plan:7"))).toBe("plan:7");
-  const restored = custom.restore("corgi", config, "plan");
-  expect(bindings.lookup(custom.resolve("corgi", restored), true, 80)).toEqual({ name: "plan" });
-});
 test("control bytes, CSI-u chords and uppercase letters match the same bindings", () => {
   const table = custom.resolve("corgi", custom.parse({ new: "ctrl+y", "focus:left": "prefix+shift+h" }));
   expect(bindings.lookup(table, false, 25)).toEqual({ name: "new" });

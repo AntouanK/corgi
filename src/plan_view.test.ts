@@ -79,7 +79,6 @@ test.each(["corgi", "animal_style"] as const)(
       expect(screen).not.toContain("Input ");
       expect(screen).not.toContain("PgUp");
       expect(screen).not.toContain("earlier items");
-      expect(planView.key("\x1b")?.name).toBe("plan-close");
     } finally {
       terminal.destroy();
       palette.use("corgi");
@@ -170,8 +169,6 @@ test("long plans follow appended work, retain its episode, and total hidden work
         .find(line => line.includes("Total")),
     ).toMatch(/Total\s+≥3k\s+7\s+1k/);
     expect(terminal.text()).toContain("1k tokens unassigned");
-    expect(planView.key("page_down")).toBeNull();
-    expect(planView.key("end")).toBeNull();
     view.nodes[2].state = "active";
     view.nodes[2].bump = null;
     view.focus_step = "s";

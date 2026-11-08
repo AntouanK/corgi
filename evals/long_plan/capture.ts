@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
-// Run inside tools/ghostty_screenshot.ts -- to capture the actual terminal panel.
+// Run inside tools/ghostty_screenshot.ts -- to capture the actual agent tooltip.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as history from "./history";
 import * as plan from "./plan";
-import * as panel from "../../src/plan_view";
+import * as tooltip from "./tooltip";
 import * as palette from "../../src/palette";
 import { Writer } from "../../src/text";
 
@@ -21,10 +21,12 @@ const view = plan.snapshot(call.state, data, line);
 const draw = () => {
   const out = new Writer();
   out.write(new palette.Style({ bg: "bg", fg: "text" }).sgr() + "\x1b[2J\x1b[?25l");
-  panel.draw(
+  tooltip.draw(
     out,
-    panel.geometry(process.stdout.columns || 116, process.stdout.rows || 24),
+    process.stdout.columns || 116,
+    process.stdout.rows || 24,
     id,
+    data.provider,
     view,
     history.runningAt(history.activity(data), line),
   );
