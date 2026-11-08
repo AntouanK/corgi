@@ -2555,7 +2555,7 @@ export class Controller {
       case "plan": {
         const id = Number(act.value) || this.focused()?.agent.conversation || 0;
         if (!this.runtime.conversations.some(c => c.id === id)) {
-          this.notice(" Select an agent to view its plan");
+          this.notice(i18n.t`Select an agent to view its plan`);
           break;
         }
         this.closeMenu();
