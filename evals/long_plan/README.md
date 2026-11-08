@@ -383,6 +383,80 @@ bun evals/long_plan/report.ts evals/long_plan/efficiency_checks.json RUN_DIRECTO
 The plain-output trial reduced wrapper tokens but allowed overlong descriptions;
 the selected contract validates lengths with its schema and in the reducer.
 
+### Thinking effort sweep
+
+The production Claude summary process already passes `--effort low`. The eval
+runner can override that launch flag with `--effort low|medium|high` without
+changing the application default. It records the requested effort and the model
+and effort actually passed to each process. `--brief-thinking` adds a separate
+instruction to minimize deliberation while retaining all semantic rules. This is
+a prompt experiment, not a lower named effort level or disabled thinking.
+
+```sh
+bun evals/long_plan/run.ts --manifest CASES.json --effort medium \
+  --timeout-ms 240000 --out RESULTS_DIRECTORY
+bun evals/long_plan/run.ts --manifest CASES.json --effort low \
+  --brief-thinking --timeout-ms 240000 --out RESULTS_DIRECTORY
+uv run --with matplotlib python evals/long_plan/thinking_plot.py SWEEP_DIRECTORY
+```
+
+The sweep uses two independent repetitions of high, medium, low, and low with
+brief-thinking guidance. Each repetition covers four frozen real conversations,
+sixteen synthetic cases and the background-focus holdout: 99 checkpoints and
+115 checks. It keeps the existing rubric fixed. The plot separates its 52
+semantic checks from 63 structural checks, and breaks semantic results into
+hierarchy/intent, foreground focus, setbacks/recovery and titles/constraints.
+Quality is scored on the accepted state after validation; automatic corrections
+such as suppressing passive focus or reopening a parent are counted separately.
+Some are routine filtering of passive events in a grouped range, so this count
+is not itself an error rate.
+It counts every recorded attempt, including rejected patches and formatting
+iterations. Thinking is a subset of output, and cache writes are uncached input.
+
+These are the broader quality replay inputs, not the earlier 52 production-sized
+windows; their absolute token totals should not be compared to that benchmark.
+Up to four processes run concurrently, with submission order reversed for the
+second repetition; the first high/low pair started earlier than medium/brief.
+Latency is not compared. Whiskers show the two-run range, not a confidence interval. Each
+condition starts new conversations; cache availability can still vary.
+The interrupted 60-second-timeout pilot is retained separately under
+`thinking-sweep/pilot-60s`; measured runs all allow 240 seconds per request.
+
+Claude Code 2.1.319 does not turn off Haiku 5.5 thinking when given
+`MAX_THINKING_TOKENS=0` or `alwaysThinkingEnabled: false`, even though the direct
+Messages API supports disabled thinking at some effort levels. The eval uses
+the same Claude Code path as production, so it does not label either setting as
+"thinking off." See [Claude Code model configuration](https://code.claude.com/docs/en/model-config#extended-thinking)
+and the [Haiku effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort).
+
+
+The completed sweep (2026-11-08) produced these per-replay means; quality counts
+combine the two repetitions:
+
+| Metric | High | Medium | Low (current) | Low + brief |
+| --- | ---: | ---: | ---: | ---: |
+| Uncached input | 420.2k | 342.4k | 320.6k | 321.4k |
+| Cached input | 3,329.0k | 2,860.3k | 2,689.7k | 2,696.3k |
+| Output, including thinking | 210.2k | 115.3k | 86.5k | 80.6k |
+| Thinking, subset of output | 188.4k | 95.1k | 67.1k | 61.6k |
+| Semantic checks | 98/104 | 102/104 | 102/104 | 104/104 |
+| All checks | 224/230 | 228/230 | 228/230 | 230/230 |
+
+All 792 checkpoint updates completed, with no rejected patches and no extra
+provider formatting iterations. Low used 58.9% less output and 23.7% less
+uncached input than high, with more semantic checks passing on this suite.
+The brief prompt averaged 6.8% less output than ordinary low, while uncached
+input and raw total tokens were essentially unchanged. Its output range
+(79,475–81,695) overlaps ordinary low's (80,183–92,735), so two repetitions
+do not establish a reliable small saving. Production remains at low; brief
+guidance is an eval-only candidate.
+
+The rubric was frozen for the sweep. Misses included resumed-episode grouping,
+final-report focus, a stale TODO obscuring a failure, and naming/constraint
+checks. Some naming checks use literal matchers, so small score differences
+need interpretation. The full report, per-run CSV, failures and PNG/SVG/PDF
+plots are under `evals/results/long-plan/thinking-sweep/`.
+
 To capture a replay with terminal font shaping and box drawing:
 
 ```sh

@@ -11,6 +11,8 @@ import * as compact from "../../src/activity/plan_protocol";
 import { Audit } from "./usage_audit";
 import { Context } from "../../src/activity/plan_context";
 import { Conversation } from "./cached";
+import { Thinking, brief } from "./thinking";
+import * as efforts from "../../src/providers/effort";
 import type { Provider } from "./history";
 import type { Check } from "./score";
 
@@ -57,13 +59,19 @@ async function main() {
     reuse = ops && !args.includes("--stateless");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
     );
   const selection = option("--case"),
     model = option("--model", "claude:claude-haiku-5-5"),
     [provider, ...parts] = model.split(":"),
     modelId = parts.join(":");
   if (provider !== "claude" && provider !== "codex") throw Error("InvalidProvider");
+  const effort = efforts.parse(option("--effort", "low")),
+    briefThinking = args.includes("--brief-thinking"),
+    timeout = Number(option("--timeout-ms", "60000"));
+  if (!effort || !["low", "medium", "high"].includes(effort)) throw Error("InvalidEffort");
+  if (!Number.isSafeInteger(timeout) || timeout < 1000) throw Error("InvalidTimeout");
+  if (provider !== "claude" && (args.includes("--effort") || briefThinking)) throw Error("ClaudeThinkingOnly");
   const batchSize = Number(option("--batch", "24")),
     ablation = option("--ablation", "all"),
     baseline = args.includes("--flat"),
@@ -76,8 +84,9 @@ async function main() {
     cases: Case[] = JSON.parse(raw);
   const selected = cases.filter(c => !selection || c.id === selection);
   if (!selected.length) throw Error("NoCases");
-  const pool = new Pool({ config: { provider, model: modelId, timeout_ms: 60000 } });
+  const pool = new Pool({ config: { provider, model: modelId, timeout_ms: timeout } });
   const audit = provider === "claude" ? new Audit() : null;
+  const thinking = provider === "claude" ? new Thinking(effort) : null;
   const stopping = { value: false };
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => (stopping.value = true));
   const sourceHashes = Object.fromEntries(
@@ -101,10 +110,15 @@ async function main() {
       "../../src/activity/plan_protocol.ts",
       "../../src/activity/plan_context.ts",
       "usage_audit.ts",
+      "thinking.ts",
     ].map(file => [file, history.hash(fs.readFileSync(path.join(import.meta.dir, file), "utf8"))]),
   );
   const report: {
     model: string;
+    effort: efforts.Effort;
+    brief_thinking: boolean;
+    timeout_ms: number;
+    launches: Thinking["launches"];
     baseline: boolean;
     transport: "stateless" | "cached-deltas" | "compact" | "compact-text" | "compact-deltas" | "compact-text-deltas";
     ablation: string;
@@ -118,6 +132,10 @@ async function main() {
     failures: number;
   } = {
     model,
+    effort,
+    brief_thinking: briefThinking,
+    timeout_ms: timeout,
+    launches: thinking?.launches ?? [],
     baseline,
     transport: reuse
       ? plain
@@ -139,11 +157,21 @@ async function main() {
     cases: [],
     failures: 0,
   };
+  if (briefThinking) report.instructions += "\n" + brief;
   const resume = args.includes("--resume"),
     prior = resume ? JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8")) : null;
   if (prior) {
+    const defaults: Partial<typeof report> = {
+      transport: "stateless",
+      effort: "low",
+      brief_thinking: false,
+      timeout_ms: 60000,
+    };
     for (const key of [
       "model",
+      "effort",
+      "brief_thinking",
+      "timeout_ms",
       "baseline",
       "transport",
       "ablation",
@@ -152,8 +180,7 @@ async function main() {
       "instructions",
       "schema",
     ] as const)
-      if ((prior[key] ?? (key === "transport" ? "stateless" : undefined)) !== report[key])
-        throw Error(`ResumeConfigurationChanged:${key}`);
+      if ((prior[key] ?? defaults[key]) !== report[key]) throw Error(`ResumeConfigurationChanged:${key}`);
     if (baseline) throw Error("FlatResumeUnsupported");
     write(path.join(dir, `before-resume-${Date.now()}.report.json`), prior);
     report.source_hashes = prior.source_hashes;
@@ -273,6 +300,7 @@ async function main() {
                 : !cachedConversation
                   ? { instructions: plan.instructions, schema: plan.schema, content: JSON.stringify(content) }
                   : conversation.prepare(road);
+          if (briefThinking) request.instructions = report.instructions;
           if (plain && ops) request.schema = null;
           if (content !== input)
             request.content = request.fresh_content = JSON.stringify({
@@ -305,6 +333,7 @@ async function main() {
                 {
                   ...(reuse ? context.prepare(road) : cachedConversation ? conversation.prepare(road) : request),
                   ...(plain && ops ? { schema: null } : {}),
+                  instructions: report.instructions,
                   content: corrected,
                   fresh_content: corrected,
                 },
@@ -428,6 +457,7 @@ async function main() {
   } finally {
     pool.close();
     audit?.close();
+    thinking?.close();
   }
   if (!args.includes("--prepare")) {
     console.log(`${report.failures} failures; ${dir}/report.json`);
