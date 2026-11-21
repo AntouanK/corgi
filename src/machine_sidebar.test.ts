@@ -3,6 +3,7 @@ import { localEndpoint } from "./machine_connection";
 import { sshEndpoint } from "./ssh_path";
 import { expect, spyOn, test } from "bun:test";
 import { Workspaces } from "./machine_sidebar";
+import { Rect } from "./layout";
 import { Endpoint, type Status } from "./machine_connection";
 import { Probe } from "./terminal_info";
 import { Host } from "./host";
@@ -71,6 +72,31 @@ test("opening the machine dropdown cancels a worktree entry waiting for history"
     expect(workspaces.open).toBe(true);
   } finally {
     view.launch_previews.disconnect();
+    view.runtime.destroy();
+  }
+});
+/** Whether everything drawn on a screen of `text` lies inside `box`. */
+function drawnWithin(text: string, box: Rect): boolean {
+  return text.split("\n").every((line, y) => [...line].every((ch, x) => ch === " " || box.contains(x, y)));
+}
+
+test("the machine dropdown's rect holds everything it draws, its hint row included", () => {
+  const { view, workspaces } = world("local", "work");
+  try {
+    workspaces.show();
+    view.width = 100;
+    view.height = 30;
+    const side = view.sidebarView([]),
+      box = workspaces.rect(side),
+      terminal = new Terminal(side.cols, side.rows);
+    try {
+      terminal.feed(workspaces.draw(side));
+      expect(drawnWithin(terminal.text(), box)).toBe(true);
+      expect(terminal.text().split("\n")[box.y + box.h - 1]).toContain("Enter");
+    } finally {
+      terminal.destroy();
+    }
+  } finally {
     view.runtime.destroy();
   }
 });

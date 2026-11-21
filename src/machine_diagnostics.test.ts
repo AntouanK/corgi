@@ -1,6 +1,7 @@
 import { sshEndpoint } from "./ssh_path";
 import { expect, test } from "bun:test";
 import { Notice } from "./machine_diagnostics";
+import { Rect } from "./layout";
 import { Endpoint } from "./machine_connection";
 import { Host } from "./host";
 import { Probe } from "./terminal_info";
@@ -23,6 +24,11 @@ test("SSH diagnostics distinguish authentication and host identity from transien
   expect(ssh.failure("sh: /corgi: Permission denied")).toBe("error");
 });
 
+/** Whether everything drawn on a screen of `text` lies inside `box`. */
+function drawnWithin(text: string, box: Rect): boolean {
+  return text.split("\n").every((line, y) => [...line].every((ch, x) => ch === " " || box.contains(x, y)));
+}
+
 test("diagnostics remain readable after recovery and scroll to a usable repair command", () => {
   const endpoint = work();
   endpoint.status = "attention";
@@ -34,6 +40,8 @@ test("diagnostics remain readable after recovery and scroll to a usable repair c
   const terminal = new Terminal(60, 15);
   try {
     terminal.feed(notice.draw(60, 15));
+    // Its rect holds all of it, so images under the frame cut around it.
+    expect(drawnWithin(terminal.text(), notice.rect(60, 15)!)).toBe(true);
     expect(terminal.text()).toContain("Authentication required");
     notice.scroll(1000);
     terminal.feed("\x1b[2J" + notice.draw(60, 15));

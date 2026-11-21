@@ -1,5 +1,6 @@
 import type { Endpoint } from "./machine_connection";
 import * as palette from "./palette";
+import { Rect } from "./layout";
 import * as text from "./text";
 import * as lab from "./remote_lab";
 import * as details from "./connectivity_details";
@@ -189,13 +190,23 @@ export class Menu {
   private sliderLabel(): number {
     return Math.min(28, Math.max(10, this.detailWidth() - 12));
   }
+  /** Where the menu draws on a `cols` × `rows` screen; null when it draws nothing. */
+  rect(cols: number, rows: number): Rect | null {
+    if (!this.endpoints[this.selected] || cols < 1 || rows < 1) return null;
+    const width = Math.min(112, cols),
+      height = Math.min(38, rows);
+    return new Rect(
+      Math.max(0, Math.floor((cols - width) / 2)),
+      Math.max(0, Math.floor((rows - height) / 2)),
+      width,
+      height,
+    );
+  }
   draw(cols: number, rows: number): string {
-    const endpoint = this.endpoints[this.selected];
-    if (!endpoint || cols < 1 || rows < 1) return "";
-    this.width = Math.min(112, cols);
-    this.height = Math.min(38, rows);
-    this.x = Math.max(0, Math.floor((cols - this.width) / 2));
-    this.y = Math.max(0, Math.floor((rows - this.height) / 2));
+    const endpoint = this.endpoints[this.selected],
+      box = this.rect(cols, rows);
+    if (!endpoint || box === null) return "";
+    ({ x: this.x, y: this.y, w: this.width, h: this.height } = box);
     this.nav = Math.min(Math.floor(this.width / 2), 22, Math.max(14, Math.floor(this.width / 4)));
     const width = this.detailWidth(),
       now = performance.now();

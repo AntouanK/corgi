@@ -516,10 +516,14 @@ export async function run(
         changed = false;
         next_draw = Date.now() + quiet_ms;
         let frame: composition.Output;
-        view.hide_connection_signals = workspaces.open || connectivity.open;
         view.width = cols;
         view.height = height;
         side = view.sidebarView([]);
+        view.overlays = [
+          workspaces.open ? workspaces.rect(side) : null,
+          connectivity.open ? connectivity.rect(cols, height) : null,
+          diagnostic.open ? diagnostic.rect(cols, height) : null,
+        ].filter(box => box !== null);
         if (workspaces.open || connectivity.open || view.overlayOpen() || view.copy_mode || view.ui_mouse_down)
           connection_hover.clear();
         if (connection_hover.machine && view.pointer)

@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Menu } from "./connectivity_menu";
+import { Rect } from "./layout";
 import { Endpoint, localEndpoint } from "./machine_connection";
 import { Host } from "./host";
 import { Probe } from "./terminal_info";
@@ -22,6 +23,11 @@ const endpoints = () =>
       : localEndpoint("/tmp/unused.sock", new Probe(), new Host()),
   );
 
+/** Whether everything drawn on a screen of `text` lies inside `box`. */
+function drawnWithin(text: string, box: Rect): boolean {
+  return text.split("\n").every((line, y) => [...line].every((ch, x) => ch === " " || box.contains(x, y)));
+}
+
 test("developer console keeps navigation and close visible on short screens", () => {
   const menu = new Menu(endpoints(), "");
   menu.toggle(0);
@@ -33,6 +39,8 @@ test("developer console keeps navigation and close visible on short screens", ()
     const terminal = new Terminal(cols, rows);
     try {
       terminal.feed(menu.draw(cols, rows));
+      // Its rect holds all of it, so images under the frame cut around it.
+      expect(drawnWithin(terminal.text(), menu.rect(cols, rows)!)).toBe(true);
       expect(terminal.text()).toContain("Developer");
       expect(terminal.text()).toContain("Remote");
       expect(terminal.text()).toContain("slowloris");

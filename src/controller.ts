@@ -540,7 +540,8 @@ export class Controller {
   private press_dropped = false;
   signal_bars = new signalBars.Images();
   grip_band = new gripBand.Image();
-  hide_connection_signals = false;
+  /** The menus a machine viewer draws over the frame after it, which images cut around. */
+  overlays: Rect[] = [];
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
   sidebar_drag: "width" | "split" | null = null;
@@ -10219,7 +10220,7 @@ export class Controller {
         pane_opening: this.openingFocus() !== null,
         signal_bars: this.supports_kitty_graphics ? this.signal_bars : null,
         grip_band: this.supports_kitty_graphics ? this.grip_band : null,
-        signal_bars_hidden: this.hide_connection_signals,
+        overlays: this.overlays,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,

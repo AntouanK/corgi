@@ -27,6 +27,7 @@ import {
 } from "./render";
 import { Model, Selection, View, Rect, type Axis } from "./layout";
 import * as palette from "./palette";
+import * as gripBand from "./grip_band";
 import * as sidebar from "./sidebar";
 import * as docking from "./docking";
 import * as resourceTooltip from "./resource_tooltip";
@@ -110,12 +111,13 @@ test("machine reception uses cached Kitty pixels, falls back to blocks, and yiel
   expect(images.end()).toContain("f=32");
   const withImage = draw();
   expect(withImage).toContain("a=p,i=730404");
-  // Under a menu drawn over the frame, they keep their room but aren't placed.
-  u.signal_bars_hidden = true;
+  // Under a menu drawn over the frame after it, they keep their room but are
+  // cut away where it covers them.
+  u.overlays = [new Rect(0, 0, 120, 40)];
   const hidden = draw();
   expect(hidden).not.toContain("a=p,i=730404");
   expect(hidden).not.toContain("█");
-  u.signal_bars_hidden = false;
+  u.overlays = [];
   row.connecting = true;
   row.connection_status = { label: "connecting", seconds: 4, color: "warm" };
   expect(draw()).toContain("connecting 4s");
@@ -127,6 +129,34 @@ test("machine reception uses cached Kitty pixels, falls back to blocks, and yiel
   u.connection_card = null;
   u.signal_bars = null;
   expect(draw()).toContain("█");
+});
+
+test("the rule's band is an image once the host holds it, cut around a menu drawn over the frame", () => {
+  const band = new gripBand.Image();
+  const u = ui({
+    message: "",
+    sidebar_open: true,
+    copy_mode: false,
+    grip_band: band,
+    cell_pixels: { width: 10, height: 20 },
+  });
+  const draw = () => frame(null, [], 120, 40, u);
+  const lined = "\x1b[0;4;53m";
+  // The first frame draws the band cell by cell while its image uploads.
+  expect(draw()).toContain(lined);
+  expect(band.end()).toContain("a=t,t=d,f=100,i=730140");
+  const placed = draw();
+  expect(placed).toContain("a=p,i=730140,p=1,z=-1");
+  expect(placed).not.toContain(lined);
+  // A menu the machine viewer draws over the frame after it: the band stays
+  // an image, with the menu's columns cut out of it.
+  const rule = sidebar.View.init(120, 40, true, 0, 0).middle();
+  u.overlays = [new Rect(6, rule - 3, 10, 6)];
+  const cut = draw();
+  expect(cut).toMatch(new RegExp(`\\x1b\\[${rule};2H\\x1b_Ga=p,i=730140,p=\\d+,x=0,y=0,w=50,h=20,`));
+  expect(cut).toMatch(new RegExp(`\\x1b\\[${rule};17H\\x1b_Ga=p,i=730140,p=\\d+,x=150,y=0,w=110,h=20,`));
+
+  expect(cut).not.toContain(lined);
 });
 
 test("setup clips signal bars at its border and restores them when closed", () => {

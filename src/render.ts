@@ -231,8 +231,8 @@ export interface Ui {
   signal_bars: signalBars.Images | null;
   /** The rule's band as an image, on a host that shows Kitty images. */
   grip_band: gripBand.Image | null;
-  /** The bars keep their room but aren't placed, under menus drawn over the frame. */
-  signal_bars_hidden: boolean;
+  /** Boxes drawn over the frame after it, which images cut around like the frame's own. */
+  overlays: readonly Rect[];
   git_hover: viewerRef.Workspace | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
@@ -342,7 +342,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     pane_opening: false,
     signal_bars: null,
     grip_band: null,
-    signal_bars_hidden: false,
+    overlays: [],
     git_hover: null,
     grip_hover: [],
     git_card: null,
@@ -909,7 +909,7 @@ export function frame(
   let resize_hover: Axis | null = null;
   // Pane images go in last, cut around the boxes drawn over them.
   const pictured: { pane: Pane; rect: Rect; hidden: boolean }[] = [];
-  const covered: Rect[] = [];
+  const covered: Rect[] = [...u.overlays];
   const cover = (box: Rect | null) => {
     if (box) covered.push(box);
   };
@@ -1455,7 +1455,7 @@ export function frame(
         u.cell_pixels!,
       ),
     );
-  if (u.signal_bars && u.cell_pixels && !u.signal_bars_hidden && !u.signin_draw && !u.signin_exit)
+  if (u.signal_bars && u.cell_pixels && !u.signin_draw && !u.signin_exit)
     for (const { quality, x, y } of signals) w.write(u.signal_bars.place(quality, x, y, u.cell_pixels, covered));
   if (u.grip_band && u.cell_pixels)
     for (const { x, y, count } of bands) w.write(u.grip_band.place(x, y, count, u.cell_pixels, covered));

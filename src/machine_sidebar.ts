@@ -107,6 +107,11 @@ export class Workspaces {
     const index = dropdown.hit(box, choices.length, x, y);
     return index === null ? null : this.offset + index;
   }
+  /** Where the menu draws: its box and the hint row under it. */
+  rect(side: sidebar.View): Rect {
+    const { box } = this.layout(side);
+    return new Rect(box.x, box.y, box.w, box.h + 1);
+  }
   draw(side: sidebar.View): string {
     const { box, choices } = this.layout(side);
     const writer = new text.Writer();

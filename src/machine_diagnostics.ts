@@ -55,19 +55,27 @@ export class Notice {
     else if (value === "\x1b[5~") this.scroll(-this.height);
     else if (value === "\x1b[6~") this.scroll(this.height);
   }
-  draw(cols: number, rows: number): string {
-    if (!this.message || cols < 6 || rows < 5) return "";
+  private layout(cols: number, rows: number): { rect: Rect; lines: string[] } | null {
+    if (!this.message || cols < 6 || rows < 5) return null;
     const width = Math.min(76, cols);
     const lines = this.message.flatMap(line => (line ? text.wrap(line, width - 4) : [""]));
+    const height = Math.min(rows - 4, lines.length);
+    return {
+      rect: new Rect(Math.floor((cols - width) / 2), Math.floor((rows - height - 4) / 2), width, height + 4),
+      lines,
+    };
+  }
+  /** Where the notice draws on a `cols` × `rows` screen; null when it draws nothing. */
+  rect(cols: number, rows: number): Rect | null {
+    return this.layout(cols, rows)?.rect ?? null;
+  }
+  draw(cols: number, rows: number): string {
+    const laid = this.layout(cols, rows);
+    if (laid === null) return "";
+    const { rect, lines } = laid;
     this.length = lines.length;
-    this.height = Math.min(rows - 4, lines.length);
+    this.height = rect.h - 4;
     this.scroll(0);
-    const rect = new Rect(
-      Math.floor((cols - width) / 2),
-      Math.floor((rows - this.height - 4) / 2),
-      width,
-      this.height + 4,
-    );
     const writer = new text.Writer();
     card.draw(writer, {
       rect,
