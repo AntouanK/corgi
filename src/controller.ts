@@ -87,6 +87,7 @@ import * as resourceTooltip from "./resource_tooltip";
 import type { Card as ConnectionCard } from "./connectivity_card";
 import type { State as SyncNotice } from "./sync_notice";
 import * as signalBars from "./signal_bars";
+import * as gripBand from "./grip_band";
 import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
@@ -538,6 +539,7 @@ export class Controller {
   /** The last press came while dropping: its drag and release go with it. */
   private press_dropped = false;
   signal_bars = new signalBars.Images();
+  grip_band = new gripBand.Image();
   hide_connection_signals = false;
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
@@ -10087,10 +10089,10 @@ export class Controller {
   }
   compose(retain = true): composition.Output {
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
-    const hide = this.images.begin() + this.tab_icons.begin() + this.signal_bars.begin();
+    const hide = this.images.begin() + this.tab_icons.begin() + this.signal_bars.begin() + this.grip_band.begin();
     const retained = retain ? new composition.Frame() : undefined;
     const frame = this.renderFrame(retained);
-    const writes = this.images.end() + this.tab_icons.end() + this.signal_bars.end();
+    const writes = this.images.end() + this.tab_icons.end() + this.signal_bars.end() + this.grip_band.end();
     if (writes) this.queueEffect({ write_terminal: writes });
     const prefix = hide ? "\x1b[?2026h" + hide : "",
       suffix = hide ? "\x1b[?2026l" : "";
@@ -10216,6 +10218,7 @@ export class Controller {
         sync_notice: this.sync_notice,
         pane_opening: this.openingFocus() !== null,
         signal_bars: this.supports_kitty_graphics ? this.signal_bars : null,
+        grip_band: this.supports_kitty_graphics ? this.grip_band : null,
         signal_bars_hidden: this.hide_connection_signals,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,

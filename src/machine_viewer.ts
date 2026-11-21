@@ -568,7 +568,7 @@ export async function run(
     }
     if (endpoints[0].uninstalled) {
       if (probe.badge.uploaded) viewer.writeAll(corgiBadge.remove);
-      viewer.writeAll(view.images.clear() + view.tab_icons.clear());
+      viewer.writeAll(view.images.clear() + view.tab_icons.clear() + view.grip_band.clear());
       const { cols, rows } = viewer.dimensions();
       await farewell(cols, rows);
       throw Error("Uninstalled");
@@ -582,7 +582,7 @@ export async function run(
     while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) await wake.wait(until - Date.now());
     stdin.close();
     await Promise.all(endpoints.map(endpoint => endpoint.close()));
-    viewer.writeAll(view.images.clear() + view.tab_icons.clear() + view.signal_bars.clear());
+    viewer.writeAll(view.images.clear() + view.tab_icons.clear() + view.signal_bars.clear() + view.grip_band.clear());
     viewer.close(view);
     differ?.destroy();
     if (probe.badge.uploaded) viewer.writeAll(corgiBadge.remove);

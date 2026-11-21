@@ -243,7 +243,8 @@ test("the agent under the pointer takes the hover tint until the pointer leaves 
     }),
   ];
   const tint = palette.bgRgb(palette.mix(palette.colors.bg, palette.colors.selected, 50));
-  const top = sidebar.View.init(100, 30, true, 0, entries.length).middle() + 2;
+  const middle = sidebar.View.init(100, 30, true, 0, entries.length).middle(),
+    top = middle + 2;
   const cases: { pointer: Pointer | null; tinted?: number; scope_menu?: boolean; drag?: boolean }[] = [
     { pointer: { x: 5, y: top }, tinted: top },
     { pointer: { x: 20, y: top + 3 }, tinted: top + 2 },
@@ -254,6 +255,8 @@ test("the agent under the pointer takes the hover tint until the pointer leaves 
     { pointer: { x: 5, y: top + 2 }, drag: true },
   ];
   for (const c of cases) {
+    // The rule's band fades through every shade from the panel to selected,
+    // so only the rows off it count.
     const output = frame(
       view,
       [],
@@ -267,7 +270,10 @@ test("the agent under the pointer takes the hover tint until the pointer leaves 
         scope_menu: c.scope_menu ? new sidebar.ScopeMenu() : null,
         dragged_agent: c.drag ? new sidebar.Preview(0, 0) : null,
       }),
-    );
+    )
+      .split(/(?=\x1b\[\d+;\d+H)/)
+      .filter(part => !part.startsWith(`\x1b[${middle};`))
+      .join("");
     if (c.tinted !== undefined) {
       expect(count(output, tint)).toBe(2);
       for (const row of [0, 1]) expect(output).toContain(`\x1b[${c.tinted + row + 1};2H\x1b[0m${tint}`);

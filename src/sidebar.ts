@@ -12,6 +12,7 @@ import * as resourceTooltip from "./resource_tooltip";
 import * as gitTooltip from "./git_tooltip";
 import * as dropdown from "./dropdown";
 import * as worktrees from "./worktrees";
+import * as gripBand from "./grip_band";
 import * as rowGlide from "./row_glide";
 import type { Summary as ArchiveSummary } from "./archive_summary";
 import type { Brand } from "./process_name";
@@ -67,7 +68,9 @@ export const lists_x = 1;
 const split_grip = " ⠶⠶⠶ ";
 /** How much of its colors each row above a list's cut edge keeps, nearest
  * first, while more of the list lies past it: the edge casts a shadow. */
-export const shadow_ink = [40, 70];
+export const shadow_ink = [40, 70],
+  /** The workspace list's, half as deep: the band under it already marks its edge. */
+  workspace_shadow_ink = [70, 85];
 /** Drops what `bytes` writes from row `end` (0-based) down and above row
  * `start`, keeping its colors so the writes after it start in the same style. */
 function clipRows(bytes: string, end: number, start = 0): string {
@@ -99,10 +102,6 @@ export let panel: string,
   star_trim: string,
   star_underline: string;
 let selected_bg: string,
-  /** The rule between the lists: a band in the selected gray, lined above and
-   * below in its grip's gray. A terminal draws an overline in the text's own
-   * color, so the lines and the grip share one. */
-  grip_band: string,
   button: string,
   button_glyph: string,
   button_warm: string,
@@ -132,7 +131,6 @@ palette.derived(() => {
   active_bar = new Style({ fg: "accent", bg: "selected" }).sgr() + "▌";
   ghost_bar = new Style({ fg: "strong", bg: "selected" }).sgr() + "▌";
   rule_underline = "\x1b[4m" + underline("line");
-  grip_band = new Style({ fg: "muted", bg: "selected", underline: true }).sgr() + "\x1b[53m" + underline("muted");
   dotted_underline = "\x1b[4:4m" + underline("line");
   ghost_underline = "\x1b[4m" + underline("strong");
   nap_fg = fgRgb(mix(colors.faint, colors.bg, 50));
@@ -711,6 +709,10 @@ export class View {
   archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
   /** Places reception bars as an image `signalBars.cells` wide; without it they're blocks. */
   signal_marks: ((quality: Quality, col: number, row: number) => void) | null = null;
+  /** Takes the rule's band, `count` cells wide at column `col` of row `row`
+   * with a `grip` cells wide grip from `start`, to place as an image; false
+   * while the host doesn't hold it, so the row draws it cell by cell. */
+  band_image: ((col: number, row: number, count: number, start: number, grip: number) => boolean) | null = null;
   cols = 0;
   rows = 0;
   width = 0;
@@ -1455,8 +1457,6 @@ export class View {
     if (v.framed()) {
       for (let row = 0; row < v.rows; row++) w.write(`${w.cup(row + 1, 1)}${panel}` + " ".repeat(lists_x));
       w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms, archived));
-      // The band runs on under the box's column while no box takes it.
-      if (v.drawer === null && v.focus === null) w.write(w.cup(v.middle(), 1) + grip_band + " " + panel);
       v.drawBox(w);
       w.withColumns(lists_x, () => v.lists().drawBadges(w));
       return;
@@ -1500,7 +1500,7 @@ export class View {
     }
     if (v.drawer === null) {
       // A focused list's box runs along the rule and turns the corner at the
-      // border; unboxed, the rule is a band that holds the grip, so it reads
+      // border; unboxed, the rule is a band around the grip, so it reads
       // apart from the section rules and the scrollbar thumb.
       const boxed = v.focus !== null,
         run = Math.max(0, v.width - 2),
@@ -1511,7 +1511,12 @@ export class View {
         w.write(w.cup(v.middle(), 2) + outline + "─".repeat(left) + grip);
         w.write("─".repeat(right) + (v.focus === "agents" ? "┐" : "┘"));
       } else {
-        w.write(w.cup(v.middle(), 1) + grip_band + " ".repeat(1 + left) + grip + " ".repeat(right) + panel);
+        // A host that shows Kitty images gets the band as one under the row's
+        // text, smooth where cells would step.
+        const count = v.width - 1;
+        if (v.band_image?.(w.column, v.middle() - 1, count, 1 + left, grip.length))
+          w.write(w.cup(v.middle(), 1) + panel + " ".repeat(1 + left) + grip + " ".repeat(right));
+        else w.write(w.cup(v.middle(), 1) + gripBand.cells(count, 1 + left, grip, panel) + panel);
       }
     }
     v.drawAgents(w, entries, now_ms);
@@ -1743,7 +1748,7 @@ export class View {
                 v.workspaceEnd(),
                 v.workspaceY(last) + (shown[shown.length - 1].collapsed ? 0 : v.workspaceRows()),
               );
-      panel_out.write(shadeRows(w.buffered(), shadowAbove(bottom)));
+      panel_out.write(shadeRows(w.buffered(), shadowAbove(bottom, workspace_shadow_ink)));
       w = panel_out;
     }
     const ws_thumb = v.workspaceThumb();
@@ -1970,7 +1975,7 @@ export class View {
       finish();
     });
     if (shadowed) {
-      list_out.write(shadeRows(w.buffered(), shadowAbove(end)));
+      list_out.write(shadeRows(w.buffered(), shadowAbove(end, shadow_ink)));
       w = list_out;
     }
     if (glide.length > 0) w.write(glide);
@@ -2482,8 +2487,8 @@ export function writeTint(w: Writer, frame: string, amount: number): void {
 }
 /** The rows from `end` up that a list's cut edge shades, mapped to how much
  * of its colors each keeps; null for the rest. */
-function shadowAbove(end: number): (row: number) => number | null {
-  return row => (row < end && row >= end - shadow_ink.length ? shadow_ink[end - 1 - row] : null);
+function shadowAbove(end: number, ink: number[]): (row: number) => number | null {
+  return row => (row < end && row >= end - ink.length ? ink[end - 1 - row] : null);
 }
 /** `frame` with the rows `ink` names faded toward the panel, keeping that
  * percent of their colors. A row fades the colors it inherits from an

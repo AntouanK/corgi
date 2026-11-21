@@ -31,6 +31,7 @@ import type { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu, status as setupStatus, type Status as SetupStatus } from "./corgi_setup";
 import * as corgiBadge from "./corgi_badge";
 import * as noWorkspace from "./no_workspace";
+import * as gripBand from "./grip_band";
 import * as rowGlide from "./row_glide";
 import type { Cell } from "./fork_hero";
 import * as pasteCard from "./paste_card";
@@ -228,6 +229,8 @@ export interface Ui {
   /** A pane an action is opening has the keyboard: no pane shows focus. */
   pane_opening: boolean;
   signal_bars: signalBars.Images | null;
+  /** The rule's band as an image, on a host that shows Kitty images. */
+  grip_band: gripBand.Image | null;
   /** The bars keep their room but aren't placed, under menus drawn over the frame. */
   signal_bars_hidden: boolean;
   git_hover: viewerRef.Workspace | null;
@@ -338,6 +341,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     sync_notice: null,
     pane_opening: false,
     signal_bars: null,
+    grip_band: null,
     signal_bars_hidden: false,
     git_hover: null,
     grip_hover: [],
@@ -1147,6 +1151,13 @@ export function frame(
     side.archive_marks = (brand, x, y) => {
       archive_marks.push({ brand, x, y });
     };
+  const bands: { x: number; y: number; count: number }[] = [];
+  if (!dim_sidebar && u.grip_band && u.cell_pixels && !u.signin_draw && !u.signin_exit)
+    side.band_image = (x, y, count, start, grip) => {
+      if (!u.grip_band!.ready(count, start, grip, u.cell_pixels!)) return false;
+      bands.push({ x, y, count });
+      return true;
+    };
   if (dim_sidebar) {
     const dimmed = new Writer();
     side.draw(dimmed, entries, workspaces, u.archived_workspaces);
@@ -1446,6 +1457,8 @@ export function frame(
     );
   if (u.signal_bars && u.cell_pixels && !u.signal_bars_hidden && !u.signin_draw && !u.signin_exit)
     for (const { quality, x, y } of signals) w.write(u.signal_bars.place(quality, x, y, u.cell_pixels, covered));
+  if (u.grip_band && u.cell_pixels)
+    for (const { x, y, count } of bands) w.write(u.grip_band.place(x, y, count, u.cell_pixels, covered));
   if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x, y } of archive_marks)
       if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))
