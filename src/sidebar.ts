@@ -65,6 +65,9 @@ export function unlit(entries: Entry[], spot: Spotlight | null): boolean[] {
 export const lists_x = 1;
 /** The drag grip in the middle of the rule between the lists. */
 const split_grip = " ⠶⠶⠶ ";
+/** How much of its colors each row above a list's cut edge keeps, nearest
+ * first, while more of the list lies past it: the edge casts a shadow. */
+export const shadow_ink = [40, 70];
 /** Drops what `bytes` writes from row `end` (0-based) down and above row
  * `start`, keeping its colors so the writes after it start in the same style. */
 function clipRows(bytes: string, end: number, start = 0): string {
@@ -96,6 +99,10 @@ export let panel: string,
   star_trim: string,
   star_underline: string;
 let selected_bg: string,
+  /** The rule between the lists: a band in the selected gray, lined above and
+   * below in its grip's gray. A terminal draws an overline in the text's own
+   * color, so the lines and the grip share one. */
+  grip_band: string,
   button: string,
   button_glyph: string,
   button_warm: string,
@@ -125,6 +132,7 @@ palette.derived(() => {
   active_bar = new Style({ fg: "accent", bg: "selected" }).sgr() + "▌";
   ghost_bar = new Style({ fg: "strong", bg: "selected" }).sgr() + "▌";
   rule_underline = "\x1b[4m" + underline("line");
+  grip_band = new Style({ fg: "muted", bg: "selected", underline: true }).sgr() + "\x1b[53m" + underline("muted");
   dotted_underline = "\x1b[4:4m" + underline("line");
   ghost_underline = "\x1b[4m" + underline("strong");
   nap_fg = fgRgb(mix(colors.faint, colors.bg, 50));
@@ -1447,6 +1455,8 @@ export class View {
     if (v.framed()) {
       for (let row = 0; row < v.rows; row++) w.write(`${w.cup(row + 1, 1)}${panel}` + " ".repeat(lists_x));
       w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms, archived));
+      // The band runs on under the box's column while no box takes it.
+      if (v.drawer === null && v.focus === null) w.write(w.cup(v.middle(), 1) + grip_band + " " + panel);
       v.drawBox(w);
       w.withColumns(lists_x, () => v.lists().drawBadges(w));
       return;
@@ -1489,16 +1499,20 @@ export class View {
       return;
     }
     if (v.drawer === null) {
-      // The rule meets the border, so an outline turns the corner. Its grip
-      // sets it apart from the section rules and the scrollbar thumb.
+      // A focused list's box runs along the rule and turns the corner at the
+      // border; unboxed, the rule is a band that holds the grip, so it reads
+      // apart from the section rules and the scrollbar thumb.
       const boxed = v.focus !== null,
-        stroke = boxed ? "─" : "━",
         run = Math.max(0, v.width - 2),
         grip = run >= split_grip.length + 4 ? split_grip : "",
-        left = Math.floor((run - grip.length) / 2);
-      w.write(w.cup(v.middle(), 2) + (boxed ? outline : panel + fg("line")) + stroke.repeat(left));
-      if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
-      w.write(stroke.repeat(run - left - grip.length) + (!boxed ? "┥" : v.focus === "agents" ? "┐" : "┘"));
+        left = Math.floor((run - grip.length) / 2),
+        right = run - left - grip.length;
+      if (boxed) {
+        w.write(w.cup(v.middle(), 2) + outline + "─".repeat(left) + grip);
+        w.write("─".repeat(right) + (v.focus === "agents" ? "┐" : "┘"));
+      } else {
+        w.write(w.cup(v.middle(), 1) + grip_band + " ".repeat(1 + left) + grip + " ".repeat(right) + panel);
+      }
     }
     v.drawAgents(w, entries, now_ms);
   }
@@ -1576,6 +1590,12 @@ export class View {
       v.workspace_offset,
       Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
     );
+    // While more lie below, the list's last rows fade into the rule (or the
+    // archives above it), from the last row it draws: a row left blank
+    // between them would take the shadow otherwise.
+    const panel_out = w,
+      shadowed = v.workspace_offset + shown.length < workspaces.length;
+    if (shadowed) w = new Writer(panel_out.column);
     shown.forEach((ws, index) => {
       const absolute = index + v.workspace_offset;
       const y = v.workspaceY(absolute);
@@ -1714,6 +1734,18 @@ export class View {
         }
       }
     });
+    if (shadowed) {
+      const last = shown.length - 1 + v.workspace_offset,
+        bottom =
+          shown.length === 0
+            ? v.workspaceEnd()
+            : Math.min(
+                v.workspaceEnd(),
+                v.workspaceY(last) + (shown[shown.length - 1].collapsed ? 0 : v.workspaceRows()),
+              );
+      panel_out.write(shadeRows(w.buffered(), shadowAbove(bottom)));
+      w = panel_out;
+    }
     const ws_thumb = v.workspaceThumb();
     if (ws_thumb)
       for (let row = ws_thumb.start; row < ws_thumb.start + ws_thumb.len; row++)
@@ -1855,6 +1887,11 @@ export class View {
       next_y += View.height(e);
     }
     const order = visible.map((_, i) => i).sort((a, b) => v.layer(visible[a]) - v.layer(visible[b]));
+    // While more lie below, the list's end (or the badge on it) shades the
+    // rows just above it.
+    const list_out = w,
+      shadowed = entries.length > 0 && v.entryEnd(v.offset, entries.length - 1) > end;
+    if (shadowed) w = new Writer(list_out.column);
     order.forEach(index => {
       const e = visible[index];
       const absolute = v.offset + index;
@@ -1932,6 +1969,10 @@ export class View {
       v.drawGhost(row_writer, e, top);
       finish();
     });
+    if (shadowed) {
+      list_out.write(shadeRows(w.buffered(), shadowAbove(end)));
+      w = list_out;
+    }
     if (glide.length > 0) w.write(glide);
     if (v.search !== null) v.line(w, v.rows - 1, i18n.t`↑↓  ↵ jump  Esc back`, panel);
     const t = v.thumb();
@@ -2438,6 +2479,58 @@ export function writeTint(w: Writer, frame: string, amount: number): void {
       prefix === "48;2;" ? Math.round(value + (colors.accent[n] - value) * amount) : value,
     ),
   );
+}
+/** The rows from `end` up that a list's cut edge shades, mapped to how much
+ * of its colors each keeps; null for the rest. */
+function shadowAbove(end: number): (row: number) => number | null {
+  return row => (row < end && row >= end - shadow_ink.length ? shadow_ink[end - 1 - row] : null);
+}
+/** `frame` with the rows `ink` names faded toward the panel, keeping that
+ * percent of their colors. A row fades the colors it inherits from an
+ * earlier row too, and the rows after it start from the colors it left. */
+export function shadeRows(frame: string, ink: (row: number) => number | null): string {
+  let fg: palette.Rgb | null = null,
+    bg: palette.Rgb | null = null,
+    ul: palette.Rgb | null = null,
+    shaded = false;
+  const style = (keep: number) => {
+    const fade = (c: palette.Rgb) => mix(colors.bg, c, keep);
+    return (fg ? fgRgb(fade(fg)) : "") + (bg ? bgRgb(fade(bg)) : "") + (ul ? palette.underlineRgb(fade(ul)) : "");
+  };
+  const track = (part: string) => {
+    for (const [, params] of part.matchAll(/\x1b\[([\d;:]*)m/g)) {
+      const t = params.split(";");
+      for (let i = 0; i < t.length; i++) {
+        const p = t[i];
+        if (p === "" || p === "0") fg = bg = ul = null;
+        else if ((p === "38" || p === "48") && t[i + 1] === "2") {
+          const rgb = t.slice(i + 2, i + 5).map(Number) as palette.Rgb;
+          if (p === "38") fg = rgb;
+          else bg = rgb;
+          i += 4;
+        } else if ((p === "38" || p === "48") && t[i + 1] === "5") i += 2;
+        else if (p === "39") fg = null;
+        else if (p === "49") bg = null;
+        else if (p === "59") ul = null;
+        else if (p.startsWith("58:2")) ul = p.split(":").filter(Boolean).slice(-3).map(Number) as palette.Rgb;
+      }
+    }
+  };
+  const out = frame.split(/(?=\x1b\[\d+;\d+H)/).map(part => {
+    const cup = /^\x1b\[(\d+);\d+H/.exec(part),
+      keep = cup ? ink(Number(cup[1]) - 1) : null;
+    // The colors a row starts with go right after its cursor move, so they stay with it.
+    const lead = keep !== null ? style(keep) : shaded ? style(100) : "",
+      at = cup ? cup[0].length : 0;
+    const body =
+      keep === null
+        ? part
+        : recolor(part, (_, value, n) => Math.floor((colors.bg[n] * (100 - keep) + value * keep + 50) / 100));
+    track(part);
+    shaded = keep !== null;
+    return body.slice(0, at) + lead + body.slice(at);
+  });
+  return out.join("") + (shaded ? style(100) : "");
 }
 /** `frame` with each truecolor channel replaced by `channel`'s answer. */
 function recolor(frame: string, channel: (prefix: string, value: number, n: number) => number): string {

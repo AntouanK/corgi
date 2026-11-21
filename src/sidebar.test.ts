@@ -23,6 +23,8 @@ import {
   resourceAt,
   agentAt,
   writeExit,
+  shadeRows,
+  shadow_ink,
   writeRevealedDetail,
   linkRange,
   portLabel,
@@ -1448,9 +1450,12 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   const rule = (left: string, stroke: string, right: string) =>
     left + stroke.repeat(10) + grip + stroke.repeat(10) + right;
   let lines = box(view);
-  expect(lines[13]).toBe(rule("  ", "━", "┥"));
-  expect(has(draw(view, [], []), panel + fg("line") + "━")).toBe(true);
-  expect(has(draw(view, [], []), fg("faint") + grip + fg("line") + "━")).toBe(true);
+  // Unboxed, the rule is a band in the selected gray holding the grip, lined
+  // above and below in the grip's gray, and the border runs past it.
+  const band = new Style({ fg: "muted", bg: "selected", underline: true }).sgr() + "\x1b[53m" + underline("muted");
+  expect(lines[13]).toBe(rule("  ", " ", "│"));
+  expect(has(draw(view, [], []), band + " ".repeat(11) + grip + " ".repeat(10) + panel)).toBe(true);
+  expect(has(draw(view, [], []), "\x1b[14;1H" + band + " " + panel)).toBe(true);
   view.focus = "agents";
   lines = box(view);
   expect(lines[12]).toBe(" ".repeat(27) + "│");
@@ -2121,6 +2126,46 @@ test("the rename field takes a row's name columns and says where its message goe
     viewerRef.isPane(e.target) && viewerRef.parts(e.target).id === 2 ? { ...e, notes: 2 } : e,
   );
   expect(view.withEntries(busy).fieldRect(viewerRef.pane(0, 2), three_workspaces)!.width).toBe(21 - 8);
+});
+
+test("a cut edge shades the rows above it, colors they inherit included", () => {
+  const ink = (rgb: palette.Rgb, keep: number) => fgRgb(mix(colors.bg, rgb, keep));
+  const frame = "\x1b[1;1H" + fgRgb([200, 100, 50]) + "a" + "\x1b[2;1H" + "b" + "\x1b[3;1H" + "c";
+  const out = shadeRows(frame, row => (row === 1 ? 40 : null));
+  // Row 1 writes no colors of its own, so it fades the ones row 0 left; row 2 gets them back whole.
+  const row = (n: number) => `\x1b[${n};1H`;
+  expect(out).toBe(
+    frame.split(row(2))[0] + row(2) + ink([200, 100, 50], 40) + "b" + row(3) + ink([200, 100, 50], 100) + "c",
+  );
+});
+
+test("while more lie below, the rule and the list's end shade the rows above them", () => {
+  const workspaces = Array.from({ length: 8 }, (_, i) =>
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+  );
+  const entries = agents(20);
+  const faded = (keep: number) =>
+    (["faint", "muted", "text"] as const).map(token => fgRgb(mix(colors.bg, colors[token], keep)));
+  const rows = (v: View) => draw(v, entries, workspaces).split(/(?=\x1b\[\d+;\d+H)/);
+  const shaded = (v: View, row: number, keep: number) =>
+    rows(v).some(part => part.startsWith(`\x1b[${row + 1};`) && faded(keep).some(ink => part.includes(ink)));
+  const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(8, 0).withEntries(entries);
+  const end = view.workspaceEnd();
+  expect(shaded(view, end - 1, shadow_ink[0])).toBe(true);
+  expect(shaded(view, end - 2, shadow_ink[1])).toBe(true);
+  expect(shaded(view, end - 3, shadow_ink[1])).toBe(false);
+  // A row too short for another workspace stays blank; the shadow starts above it.
+  const gap = View.init(100, 40, true, 0, entries.length).withWorkspaces(8, 0).withEntries(entries);
+  expect(gap.workspaceEnd() - 2 - gap.workspaceCapacity() * 3).toBe(1);
+  expect(shaded(gap, gap.workspaceEnd() - 2, shadow_ink[0])).toBe(true);
+  // The agent list's end, above the badge counting the agents below it.
+  const bottom = view.drawEnd(view.badge("below"));
+  expect(shaded(view, bottom - 1, shadow_ink[0])).toBe(true);
+  // Scrolled to the end of both, nothing is cut, so nothing fades.
+  const done = view.withWorkspaces(8, 99).withEntries(entries);
+  done.offset = done.maxOffset();
+  expect(shaded(done, end - 1, shadow_ink[0])).toBe(false);
+  expect(shaded(done, done.drawEnd(done.badge("below")) - 1, shadow_ink[0])).toBe(false);
 });
 
 test("a renamed row scrolled out of its list has no field, and the last visible line puts the message above", () => {
