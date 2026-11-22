@@ -1006,6 +1006,16 @@ export class Server {
         observers.claimPane(this, request.payload);
         reply.ok({});
         return;
+      case "pane.view": {
+        const { pane: id, path, line, column } = request.payload,
+          pane = this.runtime.pane(id);
+        if (!pane) throw Error("NoPane");
+        pane.view = path === null ? null : { path, line, column };
+        this.dirty = true;
+        this.runtime.changed();
+        reply.ok({});
+        return;
+      }
       case "action":
         await viewer.action(this, cl, request.payload, reply);
         return;

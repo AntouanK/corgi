@@ -85,6 +85,7 @@ import * as handoffUpload from "./handoff_upload";
 import * as linkThumbnail from "./link_thumbnail";
 import * as fileAccess from "./file_access";
 import * as fileRef from "./file_ref";
+import * as filePane from "./file_pane";
 import * as filePeek from "./file_peek";
 import * as paneImages from "./pane_images";
 import * as startupCard from "./startup_card";
@@ -563,6 +564,11 @@ export class Controller {
   /** A press in the file peek: its body row, or null on its frame. */
   private file_press: { row: number | null } | null = null;
   /** The picture of the prompt's pasted image under the pointer, this frame. */
+  /** The files shown in place of the panes `corgi __view` runs in. */
+  private file_panes = new filePane.Panes(() => {
+    this.dirty = true;
+    this.wake();
+  });
   private prompt_preview: PromptPreview | null = null;
   /** The frame being drawn's pictures, on a host that shows Kitty images. */
   private pictures: hostImages.FrameImages | null = null;
@@ -810,6 +816,7 @@ export class Controller {
     // A click waiting out a double-click names a pane, and a file, there.
     this.pending_open = null;
     this.file_peeks.clear();
+    this.file_panes.clear();
     this.headless_notice = null;
     this.review.pinned = false;
     this.sidebar_rows.discard();
@@ -4247,6 +4254,14 @@ export class Controller {
   private sendInput(term: Terminal, bytes: string | Uint8Array | number[], typed = true): void {
     // Nothing reads a dormant pane's input.
     if (this.pane(term.id)?.dormant || (typed && this.dropping_input)) return;
+    // A file's pane takes its keys here; its process hears only what it must do.
+    const file = this.filePane(term.id);
+    if (file) {
+      const asked = file.hosted.key(bytes, file.rows);
+      if (asked) term.send(asked);
+      this.dirty = true;
+      return;
+    }
     this.marked_unread.delete(term.id);
     if (bytes.length > 0) {
       this.flushPendingCopy();
@@ -4268,11 +4283,27 @@ export class Controller {
     const held = release || isDrag(button);
     if (!release && isButton(button)) this.press_dropped = this.dropping_input;
     if (held ? this.press_dropped : this.dropping_input) return;
+    const file = this.filePane(term.id);
+    if (file) {
+      file.hosted.mouse(button, x - rect.x, y - rect.y, release, rect.h);
+      this.dirty = true;
+      return;
+    }
     const report = viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release);
     // Only a hover, with no button held (extra buttons set bit 128), may give
     // way to the next: a drag's every point stays, as do presses and the wheel.
     if (!release && isHover(button) && (button & 128) === 0) term.move(report, button);
     else term.send(report);
+  }
+  /** The file shown in place of `pane`, and how tall the pane shows it. */
+  private filePane(pane: number): { hosted: filePane.Hosted; rows: number } | null {
+    if (!this.pane(pane)?.view) return null;
+    this.file_panes.sync(this.runtime.panes, this.filesOn(this.machine).files);
+    const hosted = this.file_panes.get(pane),
+      rect = this.layoutView()
+        .placements(this.area())
+        .find(place => place.id === pane)?.rect;
+    return hosted ? { hosted, rows: rect?.h ?? 24 } : null;
   }
   private queueEffect(effect: Effect): void {
     this.effects.push(effect);
@@ -10508,6 +10539,7 @@ export class Controller {
     const review_width = this.sidebarView([]).panel,
       review_focused = this.keyboard === "review" && review_width > 0,
       ghost_width = this.review.ghosted ? review_width || this.ghostWidth(git_ws) : 0;
+    this.file_panes.sync(this.runtime.panes, this.filesOn(this.machine).files);
     return render.frame(
       this.layoutView(),
       this.runtime.panes,
@@ -10522,6 +10554,12 @@ export class Controller {
         file_peek: file_card
           ? { rect: file_card.rect, draw: w => filePeek.draw(w, file_card.rect, file_card.peek, this.pointer) }
           : null,
+        file_pane: (pane, rect, w) => {
+          const hosted = this.file_panes.get(pane),
+            at = this.pointer;
+          hosted?.draw(w, rect.x, rect.y, rect.w, rect.h, at && rect.contains(at.x, at.y) ? at.y - rect.y : null);
+          return hosted !== null;
+        },
         file_link: (pane, link) => this.linkFile(link.uri, link.path === true, this.pane(pane)) !== null,
         startup_waits: this.runtime.startup_waits,
         startup_card: this.startup_card,

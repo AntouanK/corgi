@@ -3,14 +3,24 @@
 //! at full height: code with its folds, or a log from its end, following as
 //! it grows. `e` hands the file to $VISUAL or $EDITOR at the line shown and
 //! comes back after; `q` closes the pane.
+//!
+//! In a Corgi pane the process draws nothing. It names the file to the
+//! daemon (`pane.view`), and each viewer reads the file itself (`Panes`) and
+//! draws it where the pane is, so scrolling another computer's file waits on
+//! no round trip. The process stays for what belongs where the file is: it
+//! runs the editor, and ends when a viewer asks. Outside Corgi it draws itself.
 import { basename, dirname, resolve } from "node:path";
 import { Canvas } from "./canvas";
 import * as errors from "./errors";
+import * as fileAccess from "./file_access";
 import { progressLabel, size } from "./file_peek";
 import { Source } from "./file_source";
 import { Reader } from "./file_view";
 import * as i18n from "./i18n";
+import type { FileView } from "./mirror";
+import * as os from "./os";
 import * as palette from "./palette";
+import * as rpc from "./rpc";
 import * as terminalInput from "./terminal_input";
 import { directoryLabel, displayWidth, shortPath, Writer } from "./text";
 
@@ -218,11 +228,20 @@ export class View {
     return this.reader.source.mode === "code";
   }
   draw(cols: number, rows: number): string {
+    const c = new Canvas(0, 0, cols, rows),
+      w = new Writer();
+    this.paint(c, cols, rows);
+    w.write("\x1b[?2026h");
+    c.flush(w);
+    w.write("\x1b[?2026l");
+    return w.s;
+  }
+  /** Fills `c`, `cols` by `rows`, with the header, the file and the keys. */
+  paint(c: Canvas, cols: number, rows: number): void {
     const colors = palette.colors,
       r = this.reader,
       s = r.source,
-      h = View.body(rows),
-      c = new Canvas(0, 0, cols, rows);
+      h = View.body(rows);
     r.sync(h);
     c.fill(0, colors.surface);
     const meta = this.meta(),
@@ -246,11 +265,6 @@ export class View {
         : i18n.t`q close  e edit  F follow  space page  g/G top/end`;
     c.fill(rows - 1, null);
     c.text(1, rows - 1, help, colors.faint, null, false, cols - 2);
-    const w = new Writer();
-    w.write("\x1b[?2026h");
-    c.flush(w);
-    w.write("\x1b[?2026l");
-    return w.s;
   }
   private meta(): [string, palette.Rgb, boolean][] {
     const colors = palette.colors,
@@ -280,6 +294,200 @@ const enter = "\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h",
 /** Draws at most this often while a log streams. */
 const frame_ms = 33;
 
+/** What a viewer sends a pane's process: open the editor at `line`, or end. */
+export const editRequest = (line: number | null) => `\x1b_corgi-view;edit;${line ?? ""}\x1b\\`;
+export const quit_request = "\x1b_corgi-view;quit;\x1b\\";
+const request = /\x1b_corgi-view;(edit|quit);(\d*)\x1b\\/;
+/** The requests in what a viewer sent, and what's left of one still arriving. */
+export function requests(text: string): { found: ({ edit: number | null } | "quit")[]; rest: string } {
+  const found: ({ edit: number | null } | "quit")[] = [];
+  for (let m = request.exec(text); m; m = request.exec(text)) {
+    found.push(m[1] === "quit" ? "quit" : { edit: m[2] ? Number(m[2]) : null });
+    text = text.slice(m.index + m[0].length);
+  }
+  const at = text.lastIndexOf("\x1b_");
+  return { found, rest: at < 0 ? "" : text.slice(at, at + 64) };
+}
+
+/** A pane's file as this viewer reads and shows it. */
+export class Hosted {
+  view: View | null = null;
+  error: string | null = null;
+  private closed = false;
+  constructor(
+    readonly file: FileView,
+    readonly files: fileAccess.Files,
+    wake: () => void,
+  ) {
+    Source.open(file.path, { line: file.line, changed: wake, files }).then(
+      source => {
+        if (this.closed) return void source.close();
+        // The pane was asked for a line deep in a large file, so it scans on without asking.
+        if (source.far) void source.find();
+        this.view = new View(new Reader(source, file.line, file.column), file.line);
+        wake();
+      },
+      error => {
+        this.error = errors.name(error) ?? "ReadFailed";
+        wake();
+      },
+    );
+  }
+  shows(file: FileView, files: fileAccess.Files): boolean {
+    const mine = this.file;
+    return files === this.files && file.path === mine.path && file.line === mine.line && file.column === mine.column;
+  }
+  /** Applies the key a viewer encoded for the pane; a paste is no key.
+   * Returns what to send the pane's process, if anything. */
+  key(bytes: string | Uint8Array | number[], rows: number): string {
+    const view = this.view,
+      key = keys[typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("latin1")];
+    if (key === "quit") return quit_request;
+    if (key === "edit") return editRequest(view ? view.lineShown(rows) : this.file.line);
+    if (key && view) view.key(key, rows);
+    return "";
+  }
+  mouse(button: number, x: number, y: number, release: boolean, rows: number): void {
+    this.view?.mouse(button, x, y, release, rows);
+  }
+  /** Draws the pane at `rect`; `hover` is the pane row under the pointer. */
+  draw(w: Writer, x: number, y: number, cols: number, rows: number, hover: number | null): void {
+    const c = new Canvas(x, y, cols, rows),
+      colors = palette.colors,
+      view = this.view;
+    if (view) {
+      view.hover = hover !== null && hover >= 1 && hover <= View.body(rows) ? hover - 1 : null;
+      view.paint(c, cols, rows);
+    } else {
+      const failure = this.error;
+      for (let r = 0; r < rows; r++) c.fill(r, r === 0 ? colors.surface : null);
+      c.text(1, 0, basename(this.file.path), colors.strong, colors.surface, true, cols - 2);
+      if (failure !== null) c.text(1, 1, i18n.t`Can't read it: ${failure}`, colors.hot, null, false, cols - 2);
+      else c.text(1, 1, i18n.t`Reading…`, colors.muted, null, false, cols - 2);
+    }
+    c.flush(w);
+  }
+  close(): void {
+    this.closed = true;
+    void this.view?.reader.source.close();
+  }
+}
+/** The files a viewer shows in place of its panes. */
+export class Panes {
+  private shown = new Map<number, Hosted>();
+  constructor(private wake: () => void) {}
+  /** Reads the files `panes` name, and lets go of the rest. */
+  sync(panes: { id: number; view: FileView | null }[], files: fileAccess.Files): void {
+    const live = new Set<number>();
+    for (const pane of panes) {
+      if (!pane.view) continue;
+      live.add(pane.id);
+      const had = this.shown.get(pane.id);
+      if (had?.shows(pane.view, files)) continue;
+      had?.close();
+      this.shown.set(pane.id, new Hosted(pane.view, files, this.wake));
+    }
+    for (const [id, hosted] of this.shown) {
+      if (live.has(id)) continue;
+      hosted.close();
+      this.shown.delete(id);
+    }
+  }
+  get(pane: number): Hosted | null {
+    return this.shown.get(pane) ?? null;
+  }
+  clear(): void {
+    for (const hosted of this.shown.values()) hosted.close();
+    this.shown.clear();
+  }
+}
+
+const dropped = ["ConnectionClosed", "ServerReloading", "ServerShutdown", "EPIPE", "ECONNRESET"];
+/** Hands the pane to its viewers until one asks it to end: names the file to
+ * the daemon at `socket`, again whenever the daemon reloads, and runs the
+ * editor between. False when the daemon doesn't take the name, for the
+ * process to draw the file itself. */
+async function host(args: Args, pane: number, socket: string): Promise<boolean> {
+  const out = process.stdout;
+  let conn = new rpc.Connection(socket),
+    line = args.line,
+    column = args.column,
+    editing = false,
+    retry: ReturnType<typeof setTimeout> | null = null;
+  const name = async (shown: boolean): Promise<void> => {
+    const file = shown ? { path: args.path, line, column } : { path: null, line: null, column: null };
+    await conn.call("pane.view", { pane, ...file });
+  };
+  // A daemon that reloaded hangs up and has forgotten the name.
+  const watch = () =>
+    conn.onClose(() => {
+      const again = async (wait: number) => {
+        retry = null;
+        conn.close();
+        conn = new rpc.Connection(socket);
+        try {
+          if (!editing) await name(true);
+          watch();
+        } catch {
+          retry = setTimeout(() => void again(Math.min(wait * 2, 2000)), wait);
+        }
+      };
+      retry = setTimeout(() => void again(250), 100);
+    });
+  try {
+    await name(true);
+  } catch (error) {
+    conn.close();
+    if (dropped.includes(errors.name(error) ?? "")) throw error;
+    return false;
+  }
+  watch();
+  out.write(enter);
+  process.stdin.setRawMode?.(true);
+  process.stdin.resume();
+  let finished!: () => void;
+  const done = new Promise<void>(resolve => (finished = resolve));
+  const edit = async (at: number | null) => {
+    const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+    editing = true;
+    await name(false).catch(() => {});
+    out.write(leave);
+    process.stdin.setRawMode?.(false);
+    process.stdin.pause();
+    try {
+      await Bun.spawn(editorCommand(editor, args.path, at), { stdio: ["inherit", "inherit", "inherit"] }).exited;
+    } catch {
+      // A missing editor leaves the view as it was.
+    }
+    process.stdin.setRawMode?.(true);
+    process.stdin.resume();
+    out.write(enter);
+    editing = false;
+    // It comes back where the editor opened.
+    if (at !== line) column = null;
+    line = at;
+    await name(true).catch(() => {});
+  };
+  let pending = "";
+  process.stdin.on("data", (data: Buffer) => {
+    if (editing) return;
+    const { found, rest } = requests(pending + data.toString("latin1"));
+    pending = rest;
+    for (const asked of found) {
+      if (asked === "quit") return finished();
+      void edit(asked.edit);
+      return;
+    }
+  });
+  await done;
+  if (retry) clearTimeout(retry);
+  await name(false).catch(() => {});
+  conn.close();
+  out.write(leave);
+  process.stdin.setRawMode?.(false);
+  process.exit(0);
+}
+
 /** Runs the file view in this pane until `q`. */
 export async function run(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
@@ -287,6 +495,12 @@ export async function run(argv: string[]): Promise<void> {
     process.stderr.write("usage: corgi __view PATH [--line N] [--column N]\n");
     process.exitCode = 2;
     return;
+  }
+  const pane = Number(process.env.CORGI_PANE) || 0;
+  try {
+    if (pane > 0 && (await host(args, pane, process.env.CORGI_SOCKET || os.socketPath()))) return;
+  } catch {
+    // No daemon to name the file to: it draws itself.
   }
   const out = process.stdout;
   let timer: ReturnType<typeof setTimeout> | null = null,

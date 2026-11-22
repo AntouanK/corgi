@@ -744,6 +744,7 @@ function build(r: Runtime, viewer: boolean) {
       restoring: p.restoring(),
       forking: p.ghost?.fork !== null && p.ghost !== null,
       dormant: p.dormant,
+      view: p.view,
     })),
     headless_sessions: r.sessions.map(s => ({
       agent: agentView(r, s.attachment.agent(), s.attachment.actor?.id ?? 0),

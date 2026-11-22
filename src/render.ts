@@ -220,6 +220,8 @@ export interface Ui {
   link_card: linkTooltip.Card | null;
   /** The file peek open over a file's name in a pane. */
   file_peek: { rect: Rect; draw: (w: Writer) => void } | null;
+  /** Draws the file a pane's `view` names at `rect`, or false while it has none to draw. */
+  file_pane: (pane: number, rect: Rect, w: Writer) => boolean;
   /** Whether a path a pane's text shows is a file, which hovering underlines. */
   file_link: (pane: number, link: { uri: string; path?: boolean }) => boolean;
   resources: any;
@@ -335,6 +337,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     link_tooltip: false,
     link_card: null,
     file_peek: null,
+    file_pane: () => false,
     file_link: () => false,
     resources: { workspaces: [] },
     resource_hover: null,
@@ -1076,6 +1079,16 @@ export function frame(
       writeEllipsis(w, i18n.t`Loading pane…`, Math.max(0, r.w - 2));
       w.write("\x1b[0m");
       continue;
+    }
+    if (p.view) {
+      // The viewer's own cells, dimmed behind a dialog as a pane's are.
+      const shown = new Writer();
+      if (u.file_pane(p.id, r, shown)) {
+        if (dimsPanes(u)) sidebar.writeExit(w, shown.buffered(), sidebar.spotlight_dim);
+        else w.write(shown.buffered());
+        w.write("\x1b[0m");
+        continue;
+      }
     }
     p.terminal.updateRender();
     let hovered: bigint | null = null,

@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as fileAccess from "./file_access";
 import * as filePane from "./file_pane";
 import { Source } from "./file_source";
 import { Reader } from "./file_view";
 import * as terminalInput from "./terminal_input";
+import { Writer } from "./text";
 
 const dirs: string[] = [];
 const opened: Source[] = [];
@@ -99,4 +101,52 @@ test("the editor opens at the named line while it shows, and at the top line onc
   view.draw(60, 12);
   expect(view.lineShown(12)).toBe(view.reader.top + 1);
   expect(view.lineShown(12)).not.toBe(50);
+});
+
+test("frames what a viewer asks a pane's process, whole or in pieces", () => {
+  const edit = filePane.editRequest(42);
+  expect(filePane.requests(edit)).toEqual({ found: [{ edit: 42 }], rest: "" });
+  expect(filePane.requests("j" + filePane.editRequest(null) + filePane.quit_request)).toEqual({
+    found: [{ edit: null }, "quit"],
+    rest: "",
+  });
+  const half = filePane.requests("typed" + edit.slice(0, 9));
+  expect(half.found).toEqual([]);
+  expect(filePane.requests(half.rest + edit.slice(9)).found).toEqual([{ edit: 42 }]);
+});
+
+test("a viewer reads a pane's file itself and keeps its keys from the pane's process", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-file-pane-"));
+  dirs.push(dir);
+  const path = join(dir, "app.ts");
+  writeFileSync(path, Array.from({ length: 200 }, (_, i) => `const v${i + 1} = ${i + 1};`).join("\n"));
+  let woke!: () => void;
+  const ready = new Promise<void>(resolve => (woke = resolve));
+  const panes = new filePane.Panes(() => woke());
+  const named = { path, line: 100, column: null };
+  panes.sync([{ id: 3, view: named }], fileAccess.here);
+  const hosted = panes.get(3)!;
+  // The same name keeps what's open.
+  panes.sync([{ id: 3, view: { ...named } }], fileAccess.here);
+  expect(panes.get(3)).toBe(hosted);
+  await ready;
+  opened.push(hosted.view!.reader.source);
+  const text = () => {
+    const w = new Writer();
+    hosted.draw(w, 10, 5, 60, 20, null);
+    return w.s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
+  };
+  expect(text()).toContain("const v100 = 100;");
+  const top = hosted.view!.reader.top;
+  expect(hosted.key("j", 20)).toBe("");
+  expect(hosted.view!.reader.top).toBe(top + 1);
+  hosted.mouse(65, 4, 4, false, 20);
+  expect(hosted.view!.reader.top).toBe(top + 4);
+  // A paste isn't keys. The editor and the end are the process's to do.
+  expect(hosted.key("qqq", 20)).toBe("");
+  expect(hosted.key("e", 20)).toBe(filePane.editRequest(hosted.view!.lineShown(20)));
+  expect(hosted.key("q", 20)).toBe(filePane.quit_request);
+  // A pane that names no file lets go of it.
+  panes.sync([{ id: 3, view: null }], fileAccess.here);
+  expect(panes.get(3)).toBeNull();
 });
