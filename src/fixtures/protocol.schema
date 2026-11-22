@@ -250,6 +250,7 @@ $.requests|conversation.acknowledge.conversation: u32
 $.requests|conversation.acknowledge.through: u64
 $.requests|conversation.acknowledge.attention_at: optional
 $.requests|conversation.acknowledge.attention_at?: i64
+$.requests|conversation.plan.clear.conversation: u32
 $.requests|pane.surface.pane: u32
 $.requests|server.reload.executable: string
 $.requests|recovery.save: {}

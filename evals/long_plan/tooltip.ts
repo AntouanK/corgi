@@ -14,7 +14,7 @@ export function draw(
   running: boolean | null,
 ) {
   const total = view.nodes
-      .filter(n => n.kind === "goal")
+      .filter(n => n.parent === null)
       .reduce((sum, n) => roadmap.add(sum, view.counts[n.id] ?? roadmap.zero()), view.unassigned),
     state = running === false ? "idle" : "working",
     root = tooltip.conversation({

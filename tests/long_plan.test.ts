@@ -19,30 +19,39 @@ class Plans extends Summaries {
     writeFileSync(this.control, JSON.stringify({ delay: 0, roadmap: true, ownership: true, bump: true }));
     await this.start_turn("first", false);
     const view = async () => (await this.session()).conversations.find((c: any) => c.agent.session === A).activity_plan;
-    await this.until(async () => (await view()).nodes.length === 3);
+    await this.until(async () => (await view()).nodes.length === 2);
     const first = await view();
     const request = this.summary_logs().find((r: any) => r.event === "request");
     this.assertEqual(request.instructions, owner.variant("direct").instructions);
     this.assertIsNone(request.schema);
     this.assertEqual(
       first.nodes.map((n: any) => n.id),
-      ["g", "e", "s"],
+      ["e", "s"],
     );
     this.assertTrue(first.partial);
     this.assertEqual(first.focus, "e");
     this.assertEqual(first.focus_step, "s");
+    const commentary = "Compare plan boundaries using the recorded RPC conversation, not transport implementation";
+    this.append_record("response_item", {
+      type: "message",
+      role: "assistant",
+      phase: "commentary",
+      content: [{ type: "output_text", text: commentary }],
+    });
+    await this.advance(10);
+    await this.until(() => this.summary_logs().some((r: any) => r.event === "request" && r.input.includes(commentary)));
     const viewer = await Viewer.create(this);
     const screen = async () => screen_text((await viewer.poll()).data, 100, 30).join("\n");
     try {
       await this.hover(viewer);
-      await this.until(async () => (await screen()).includes("Restore terminal focus"));
+      await this.until(async () => (await screen()).includes("Repair focus transitions"));
       const tooltip = await screen();
       for (const label of ["Total", "Tokens", "Tools", "Cached", "Existing focus test fails", "▶ …"])
         this.assertIn(label, tooltip);
       this.assertNotIn("Esc close", tooltip);
       await viewer.input("\x1b[<35;99;1M");
       await viewer.advance(0.6);
-      await this.until(async () => !(await screen()).includes("Restore terminal focus"));
+      await this.until(async () => !(await screen()).includes("Repair focus transitions"));
     } finally {
       await viewer.close();
     }
@@ -57,29 +66,36 @@ class Plans extends Summaries {
     tokens(100);
     await this.until(async () => (await view()).known);
     tokens(300);
-    await this.until(async () => BigInt((await view()).counts.g.input) >= 200n);
+    await this.until(async () => BigInt((await view()).counts.e.input) >= 200n);
     this.tools(2, "bun test focus");
     await this.until(async () => {
       const plan = await view();
-      return BigInt(plan.counts.g.tools) + BigInt(plan.unassigned.tools) === 2n;
+      return BigInt(plan.counts.e.tools) + BigInt(plan.unassigned.tools) === 2n;
     });
     await this.advance(10);
-    await this.until(async () => (await view()).counts.g.tools === "2");
+    await this.until(async () => (await view()).counts.e.tools === "2");
     const before = await view(),
       pid = (await this.session()).server_pid;
-    this.assertEqual(before.nodes[2].bump.kind, "verification");
+    this.assertEqual(before.nodes[1].bump.kind, "verification");
     await this.rpc({ op: "server.reload", executable: EXE });
     await this.attachment.select(A);
     this.assertNotEqual((await this.session()).server_pid, pid);
     this.assertEqual(await view(), before);
     await this.start_turn("second", false);
     this.tools(1, "bun test focus");
-    await this.advance(10);
-    // Literal source lines are indented; metadata begins at column zero.
-    await this.until(() => this.calls().some(raw => raw.startsWith("{") && JSON.parse(raw).tree?.length === 3));
+    // Reload resets the test clock; pass the cooldown saved by the old daemon.
+    await this.advance(60);
+    await this.until(() =>
+      this.summary_logs().some(
+        (r: any) =>
+          r.event === "request" &&
+          r.fresh_input?.includes("Turn 2;") &&
+          JSON.parse(r.fresh_input.split("\n", 1)[0]).tree?.length === 2,
+      ),
+    );
     this.assertEqual(
       (await view()).nodes.map((n: any) => n.id),
-      ["g", "e", "s"],
+      ["e", "s"],
     );
   }
   async test_returned_work_appends_at_the_tail_and_survives_reload() {

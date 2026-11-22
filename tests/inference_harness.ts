@@ -142,14 +142,10 @@ for await (const line of createInterface({ input: process.stdin })) {
       const step = control.plan_step === "other" ? "s2" : "s";
       const additions = plan_nodes.size
         ? []
-        : [
-            node("g", null, "goal", "Restore terminal focus"),
-            node("e", "g", "episode", "Repair focus transitions"),
-            node("s", "e", "step", "Trace focus changes"),
-          ];
+        : [node("e", null, "episode", "Repair focus transitions"), node("s", "e", "step", "Trace focus changes")];
       if (step === "s2" && !plan_nodes.has("s2"))
         additions.push(
-          node("e2", "g", "episode", "Verify token receipts"),
+          node("e2", null, "episode", "Verify token receipts"),
           node("s2", "e2", "step", "Check receipt totals"),
         );
       for (const n of additions) plan_nodes.add(n.id);

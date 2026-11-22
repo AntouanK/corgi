@@ -95,6 +95,7 @@
     "owner": 123
   },
   "conversation.list": {},
+  "conversation.plan.clear": { "conversation": 1 },
   "conversation.acknowledge": {
     "conversation": 1,
     "through": 2,

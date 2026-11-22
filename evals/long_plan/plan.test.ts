@@ -11,17 +11,8 @@ const events: Event[] = [
 ];
 const nodes: plan.Node[] = [
   {
-    id: "g",
-    parent: null,
-    kind: "goal",
-    title: "Land CI changes",
-    subtitle: "Keep Linux and macOS independent",
-    state: "active",
-    evidence: [1],
-  },
-  {
     id: "e",
-    parent: "g",
+    parent: null,
     kind: "episode",
     title: "Repair branch history",
     subtitle: "Keep only CI changes above main",
@@ -120,7 +111,7 @@ test("fork imports exclude inherited history and foreign receipts, not the owned
 });
 
 test("replay visits preserve returns and charge late receipts to the generating visit", () => {
-  const steps = [...nodes, { ...nodes[2], id: "other", title: "Inspect test output" }];
+  const steps = [...nodes, { ...nodes[1], id: "other", title: "Inspect test output" }];
   const replay: plan.State = {
     nodes: steps,
     through: 5,
@@ -156,7 +147,7 @@ test("replay visits preserve returns and charge late receipts to the generating 
   expect(after.visits[2].counts.input).toBe(before.visits[2].counts.input);
   expect(after.counts.s.input).toBe("450");
   expect(after.unassigned.input).toBe("80");
-  expect(after.visits.reduce((sum, v) => sum + BigInt(v.counts.input), 0n)).toBe(BigInt(after.counts.g.input));
+  expect(after.visits.reduce((sum, v) => sum + BigInt(v.counts.input), 0n)).toBe(BigInt(after.counts.e.input));
 });
 
 test("replay activity follows provider turns through compaction without adding model evidence", () => {
@@ -446,24 +437,23 @@ test("a patch cannot cite future evidence, move history, skip coverage or assign
     next = [{ ...events[1], id: 3, line: 3 }];
   const change = (node: plan.Node, spans = [{ from: 3, to: 3, node: "s" }]) =>
     plan.apply(before, JSON.stringify({ nodes: [node], spans }), next);
-  expect(() => change({ ...nodes[2], evidence: [4] })).toThrow("InvalidEvidence");
-  expect(() => change({ ...nodes[2], parent: "g" })).toThrow("MovedHistory");
-  expect(() => change({ ...nodes[2], state: "planned" })).toThrow("InvalidAssignment");
-  expect(() => change(nodes[2], [{ from: 4, to: 4, node: "s" }])).toThrow("InvalidCoverage");
+  expect(() => change({ ...nodes[1], evidence: [4] })).toThrow("InvalidEvidence");
+  expect(() => change({ ...nodes[1], parent: null })).toThrow("MovedHistory");
+  expect(() => change({ ...nodes[1], state: "planned" })).toThrow("InvalidAssignment");
+  expect(() => change(nodes[1], [{ from: 4, to: 4, node: "s" }])).toThrow("InvalidCoverage");
   expect(before).toEqual(saved);
 });
 
-test("hierarchy cannot contain cycles or skip a level", () => {
-  expect(() =>
-    plan.apply(
-      plan.empty(),
-      JSON.stringify({ ...patch, nodes: [{ ...nodes[0], parent: "s" }, ...nodes.slice(1)] }),
-      events,
-    ),
-  ).toThrow("InvalidHierarchy");
-  expect(() =>
-    plan.apply(plan.empty(), JSON.stringify({ ...patch, nodes: [nodes[0], { ...nodes[2], parent: "g" }] }), events),
-  ).toThrow("InvalidHierarchy");
+test("hierarchy cannot contain cycles, top-level steps or nested steps", () => {
+  for (const invalid of [
+    [{ ...nodes[0], parent: "s" }, nodes[1]],
+    [nodes[0], { ...nodes[1], parent: null }],
+    [...nodes, { ...nodes[1], id: "s2", parent: "s" }],
+    [...nodes, { ...nodes[0], id: "e2", parent: "e" }],
+  ])
+    expect(() => plan.apply(plan.empty(), JSON.stringify({ ...patch, nodes: invalid }), events)).toThrow(
+      "InvalidHierarchy",
+    );
 });
 
 test("tokens roll up without adding cache reads twice, and respect observation time", () => {
@@ -481,8 +471,8 @@ test("tokens roll up without adding cache reads twice, and respect observation t
   const s = state(),
     all = plan.ledger(s, data),
     prefix = plan.ledger(s, data, 2);
-  expect(history.total(all.counts.g)).toBe(120n);
   expect(history.total(all.counts.e)).toBe(120n);
+  expect(history.total(all.counts.s)).toBe(120n);
   expect(history.total(all.observed)).toBe(175n);
   expect(history.total(all.unattributed)).toBe(55n);
   expect(history.total(prefix.observed)).toBe(120n);
@@ -512,10 +502,10 @@ test("an ordinary result may share a step with an earlier real setback", () => {
     receipts: [],
   };
   const current = state();
-  current.nodes[2].bump = { kind: "conflict", state: "resolved", detail: "Earlier import conflict", evidence: [1, 2] };
+  current.nodes[1].bump = { kind: "conflict", state: "resolved", detail: "Earlier import conflict", evidence: [1, 2] };
   const check: score.Check = { name: "normal output", kind: "no_bump_started", from: 2, to: 2 };
   expect(score.score(data, [current], [check]).find(c => c.name === check.name)?.pass).toBe(true);
-  current.nodes[2].bump = {
+  current.nodes[1].bump = {
     kind: "verification",
     state: "open",
     detail: "Invented failure from empty grep",
@@ -532,8 +522,8 @@ test("batching cuts before user steering and does not see the next prefix", () =
 
 test("a correct final title cannot rescue a missed recognition deadline", () => {
   const before = state();
-  before.nodes[1] = { ...before.nodes[1], title: "Inspect repository files" };
-  const after = plan.apply(before, JSON.stringify({ nodes: [nodes[1]], spans: [{ from: 3, to: 3, node: "s" }] }), [
+  before.nodes[0] = { ...before.nodes[0], title: "Inspect repository files" };
+  const after = plan.apply(before, JSON.stringify({ nodes: [nodes[0]], spans: [{ from: 3, to: 3, node: "s" }] }), [
     { ...events[1], id: 3, line: 3 },
   ]).state;
   const data: history.History = {
@@ -556,7 +546,7 @@ test("a correct final title cannot rescue a missed recognition deadline", () => 
   expect(checks.find(c => c.name === "final")?.pass).toBe(true);
 });
 
-test("different-goal checks distinguish separate outcomes from siblings under one goal", () => {
+test("different-episode checks distinguish separate outcomes from steps in one episode", () => {
   const data = history.decode(
     jsonl(
       {
@@ -571,14 +561,69 @@ test("different-goal checks distinguish separate outcomes from siblings under on
     "codex",
   );
   const current = state();
-  current.nodes.push({ ...nodes[1], id: "e2" }, { ...nodes[2], id: "s2", parent: "e2" });
+  current.nodes.push({ ...nodes[1], id: "s2" });
   current.spans = [
     { from: 1, to: 1, node: "s" },
     { from: 2, to: 2, node: "s2" },
   ];
-  const check: score.Check = { name: "separate outcomes", kind: "different_goal", a: 1, b: 2 };
+  const check: score.Check = { name: "separate outcomes", kind: "different_episode", a: 1, b: 2 };
   expect(score.score(data, [current], [check]).find(c => c.name === check.name)?.pass).toBe(false);
-  current.nodes.push({ ...nodes[0], id: "g2" });
-  current.nodes.find(n => n.id === "e2")!.parent = "g2";
+  current.nodes.push({ ...nodes[0], id: "e2" });
+  current.nodes.find(n => n.id === "s2")!.parent = "e2";
   expect(score.score(data, [current], [check]).find(c => c.name === check.name)?.pass).toBe(true);
+});
+
+test("a finished turn closes active work but keeps the latest open problem and planned steps open", () => {
+  const at = (id: number, kind: Event["kind"], text: string): Event => ({ id, line: id, at: "", turn: 1, kind, text });
+  const node = (id: string, parent: string | null, state: string, extra = {}) => ({
+    id,
+    parent,
+    kind: parent ? "step" : "episode",
+    title: `Work on ${id}`,
+    subtitle: `Subtitle for ${id}`,
+    state,
+    evidence: [1],
+    ...extra,
+  });
+  const patch = JSON.stringify({
+    nodes: [
+      node("e1", null, "active"),
+      node("s1", "e1", "active"),
+      node("e2", null, "active"),
+      node("s2", "e2", "active", {
+        bump: { kind: "verification", state: "open", detail: "Suite fails", evidence: [1] },
+      }),
+      node("e3", null, "active"),
+      node("s3", "e3", "active"),
+      node("s4", "e3", "planned"),
+      // Work moved past this problem, so it no longer reads as stuck.
+      node("e4", null, "active"),
+      node("s5", "e4", "active", {
+        bump: { kind: "environment", state: "open", detail: "Command refused", evidence: [1] },
+      }),
+    ],
+    spans: [
+      { from: 1, to: 1, node: "s5" },
+      { from: 2, to: 2, node: "s2" },
+    ],
+  });
+  const state = (last: Event) =>
+    Object.fromEntries(
+      plan.apply(plan.empty(), patch, [at(1, "tool", "run"), last]).state.nodes.map(n => [n.id, n.state]),
+    );
+  expect(state(at(2, "result", "ok"))).toMatchObject({ e1: "active", s1: "active" });
+  const ended = {
+    e1: "done",
+    s1: "done",
+    e2: "active",
+    s2: "active",
+    e3: "active",
+    s3: "done",
+    s4: "planned",
+    e4: "done",
+    s5: "done",
+  };
+  expect(state(at(2, "lifecycle", "turn_duration"))).toEqual(ended);
+  expect(state(at(2, "assistant", "Turn 3; lifecycle: idle\nRecent completed tools"))).toEqual(ended);
+  expect(state(at(2, "lifecycle", "turn_aborted"))).toMatchObject({ e1: "active", s1: "active" });
 });

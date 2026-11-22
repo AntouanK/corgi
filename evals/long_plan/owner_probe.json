@@ -9,23 +9,23 @@
     "split": "holdout",
     "checks": [
       {
-        "name": "separate requested outcome has a separate goal",
-        "kind": "different_goal",
+        "name": "separate requested outcome has a separate episode",
+        "kind": "different_episode",
         "a": 2,
         "b": 6
       },
       {
-        "name": "new goal describes website typography",
+        "name": "new episode describes website typography",
         "kind": "label",
         "event": 6,
-        "level": "goal",
+        "level": "episode",
         "pattern": "footer|font|typograph"
       },
       {
-        "name": "old goal retains queue scope",
+        "name": "old episode retains queue scope",
         "kind": "label",
         "event": 2,
-        "level": "goal",
+        "level": "episode",
         "pattern": "queue|deliver"
       },
       {
@@ -60,8 +60,8 @@
     "split": "holdout",
     "checks": [
       {
-        "name": "workaround documentation retains original goal",
-        "kind": "same_goal",
+        "name": "workaround documentation retains original episode",
+        "kind": "same_episode",
         "a": 2,
         "b": 6
       },

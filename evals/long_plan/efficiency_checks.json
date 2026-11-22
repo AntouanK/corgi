@@ -4,12 +4,6 @@
     "label": "Codex: zstd test",
     "checks": [
       {
-        "name": "holdout correction stays in benchmark goal",
-        "kind": "same_goal",
-        "a": 4,
-        "b": 8
-      },
-      {
         "name": "corpus and benchmark remain one episode",
         "kind": "same_episode",
         "a": 12,
@@ -127,10 +121,10 @@
         "state": "resolved"
       },
       {
-        "name": "goal explains reload loss rather than moving to a worktree",
+        "name": "episode explains reload loss rather than moving to a worktree",
         "kind": "subtitle",
         "event": 271,
-        "level": "goal",
+        "level": "episode",
         "pattern": "(handoff|reload|daemon|workspace|restor)"
       },
       {

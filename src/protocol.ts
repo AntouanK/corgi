@@ -121,6 +121,7 @@ export const operations = [
   "pane.agent",
   "conversation.list",
   "conversation.acknowledge",
+  "conversation.plan.clear",
   "pane.surface",
   "server.reload",
   "recovery.save",
@@ -686,6 +687,7 @@ const requests = {
     conversation: ["?u32", null],
   },
   "conversation.acknowledge": { conversation: "u32", through: "u64", attention_at: ["?i64", null] },
+  "conversation.plan.clear": { conversation: "u32" },
   "pane.surface": { pane: "u32" },
   "server.reload": { executable: ["string", ""] },
   "inference.configure": {

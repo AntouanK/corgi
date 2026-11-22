@@ -9,17 +9,8 @@ function fixture(): roadmap.Snapshot {
   const view = roadmap.emptyView();
   view.nodes = [
     {
-      id: "g",
-      parent: null,
-      kind: "goal",
-      title: "Repair download resume",
-      subtitle: "Keep partial files intact",
-      state: "active",
-      evidence: [1],
-    },
-    {
       id: "e",
-      parent: "g",
+      parent: null,
       kind: "episode",
       title: "Correct retry offsets",
       subtitle: "A reset offset repeats the header",
@@ -41,7 +32,6 @@ function fixture(): roadmap.Snapshot {
   view.focus = "e";
   view.focus_step = "s";
   view.counts = {
-    g: { input: "2100", cached: "1000", output: "100", tools: "6" },
     e: { input: "2100", cached: "1000", output: "100", tools: "6" },
     s: { input: "2100", cached: "1000", output: "100", tools: "6" },
   };
@@ -59,7 +49,7 @@ test.each(["corgi", "animal_style"] as const)(
       planView.draw(writer, rect, "Download repair", view);
       terminal.feed(writer.buffered());
       const screen = terminal.text();
-      expect(screen).toContain("Repair download resume");
+      expect(screen.split("\n")[rect.y + 1]).toContain("Correct retry offsets");
       expect(
         planView
           .tail(view, planView.capacity(rect))
@@ -69,7 +59,7 @@ test.each(["corgi", "animal_style"] as const)(
       expect(screen.split("\n")[rect.y + 4]).toContain("▶ Correct retry offsets");
       expect(screen.split("\n")[rect.y + 5]).toContain("! Run resume tests");
       expect(screen.split("\n")[rect.y + 6]).toContain("Resume repeats the header");
-      expect(screen.split("\n").find(line => line.includes("Correct retry offsets"))).not.toContain("!");
+      expect(screen.split("\n")[rect.y + 4]).not.toContain("!");
       expect(screen).toContain("! Run resume tests");
       expect(screen).not.toContain("✓");
       expect(screen).not.toContain("○");
@@ -102,10 +92,10 @@ test("a short tail keeps a setback, its explanation and episode together", () =>
     rect = planView.geometry(100, 12),
     terminal = new Terminal(100, 12);
   view.nodes.push({
-    ...view.nodes[2],
+    ...view.nodes[1],
     id: "s2",
     title: "Retry resume tests",
-    bump: { ...view.nodes[2].bump!, state: "resolved" },
+    bump: { ...view.nodes[1].bump!, state: "resolved" },
   });
   view.focus_step = "s2";
   try {
@@ -120,7 +110,7 @@ test("a short tail keeps a setback, its explanation and episode together", () =>
         .map(r => r.node.id),
     ).toEqual(["e", "s2"]);
     expect(lines[rect.y + 4]).toContain("Correct retry offsets");
-    expect(lines[rect.y + 5]).toContain("!✓ Retry resume tests");
+    expect(lines[rect.y + 5]).toContain("! Retry resume tests");
     expect(lines[rect.y + 6]).toContain("Resume repeats the header");
     expect(terminal.text()).not.toContain("Resolved");
     expect(terminal.text()).not.toContain("more");
@@ -137,7 +127,7 @@ test("long plans follow appended work, retain its episode, and total hidden work
     rect = planView.geometry(100, 24),
     terminal = new Terminal(100, 24);
   for (let i = 0; i < 60; i++) {
-    const node = { ...view.nodes[2], id: "s" + i, title: "Inspect work item " + i, bump: null };
+    const node = { ...view.nodes[1], id: "s" + i, title: "Inspect work item " + i, bump: null };
     view.nodes.push(node);
     view.counts[node.id] = roadmap.zero();
   }
@@ -157,7 +147,7 @@ test("long plans follow appended work, retain its episode, and total hidden work
     expect(terminal.text()).toContain("Correct retry offsets");
     expect(planView.tail(view, planView.capacity(rect)).rows.every(r => r.kind !== "node" || r.depth <= 1)).toBe(true);
     view.unassigned = { input: "1300", cached: "0", output: "0", tools: "1" };
-    view.nodes.push({ ...view.nodes[2], id: "latest", title: "Verify final repair", state: "active", bump: null });
+    view.nodes.push({ ...view.nodes[1], id: "latest", title: "Verify final repair", state: "active", bump: null });
     view.focus_step = "latest";
     expect(draw()).toContain("Verify final repair");
     expect((terminal.text().match(/▶/g) ?? []).length).toBe(2);
@@ -169,8 +159,8 @@ test("long plans follow appended work, retain its episode, and total hidden work
         .find(line => line.includes("Total")),
     ).toMatch(/Total\s+≥3k\s+7\s+1k/);
     expect(terminal.text()).toContain("1k tokens unassigned");
-    view.nodes[2].state = "active";
-    view.nodes[2].bump = null;
+    view.nodes[1].state = "active";
+    view.nodes[1].bump = null;
     view.focus_step = "s";
     expect(
       planView
@@ -186,13 +176,12 @@ test("long plans follow appended work, retain its episode, and total hidden work
 
 test("legacy plans put the focused episode and step at the bottom, including in a short tail", () => {
   const view = fixture();
-  view.nodes[2].state = "active";
-  view.nodes[2].bump = null;
+  view.nodes[1].state = "active";
+  view.nodes[1].bump = null;
   view.nodes.push(
-    { ...view.nodes[2], id: "s2", title: "Run another check" },
-    { ...view.nodes[0], id: "g2", title: "Review another feature" },
-    { ...view.nodes[1], id: "e2", parent: "g2", title: "Inspect another problem" },
-    { ...view.nodes[2], id: "s3", parent: "e2", title: "Read the logs" },
+    { ...view.nodes[1], id: "s2", title: "Run another check" },
+    { ...view.nodes[0], id: "e2", title: "Inspect another problem" },
+    { ...view.nodes[1], id: "s3", parent: "e2", title: "Read the logs" },
   );
   const ids = (count: number) => planView.tail(view, count).rows.flatMap(r => (r.kind === "node" ? [r.node.id] : []));
   for (const [episode, step, expected] of [
@@ -216,7 +205,7 @@ test("legacy plans put the focused episode and step at the bottom, including in 
       planView.draw(out, rect, "Agent", view);
       terminal.feed(out.buffered());
       expect(terminal.text().split("\n")[rect.y + 1]).toContain(
-        episode === "e" ? "Repair download resume" : "Review another feature",
+        episode === "e" ? "Correct retry offsets" : "Inspect another problem",
       );
     } finally {
       terminal.destroy();
@@ -242,8 +231,8 @@ test("completed work loses both play icons without moving the episode from the t
       expect(view.focus).toBe("e");
     }
     view.nodes.push(
-      { ...view.nodes[1], id: "e2", title: "Verify final repair" },
-      { ...view.nodes[2], id: "s2", parent: "e2", title: "Run integration suite" },
+      { ...view.nodes[0], id: "e2", title: "Verify final repair" },
+      { ...view.nodes[1], id: "s2", parent: "e2", title: "Run integration suite" },
     );
     view.focus = "e2";
     view.focus_step = "s2";
@@ -267,10 +256,10 @@ test("completed work loses both play icons without moving the episode from the t
 
 test("an episode without a known current step shows an ellipsis until attribution arrives", () => {
   const view = fixture();
-  view.nodes = view.nodes.slice(0, 2);
+  view.nodes = view.nodes.slice(0, 1);
   view.focus_step = null;
   expect(planView.tail(view, 3).rows.map(r => r.kind)).toEqual(["node", "pending"]);
-  view.nodes.push({ ...fixture().nodes[2], state: "active", bump: null });
+  view.nodes.push({ ...fixture().nodes[1], state: "active", bump: null });
   view.focus_step = "s";
   expect(planView.tail(view, 3).rows.map(r => r.kind)).toEqual(["node", "node"]);
   view.nodes.forEach(n => (n.state = "done"));
@@ -279,8 +268,8 @@ test("an episode without a known current step shows an ellipsis until attributio
 
 test("alternating investigation steps keep exact costs and put the latest work last across pauses", () => {
   const view = fixture();
-  view.nodes[2] = { ...view.nodes[2], title: "Trace pending usage across handoff", state: "active", bump: null };
-  view.nodes.push({ ...view.nodes[2], id: "tracker", title: "Trace activity tracker handoff state" });
+  view.nodes[1] = { ...view.nodes[1], title: "Trace pending usage across handoff", state: "active", bump: null };
+  view.nodes.push({ ...view.nodes[1], id: "tracker", title: "Trace activity tracker handoff state" });
   const order = ["s", "tracker", "s", "tracker", "s", "tracker", "s", "tracker", "s"];
   const inputs = [250_000, 350_000, 675_000, 578_000, 319_000, 112_000, 113_000, 0, 235_000];
   const tools = [7, 4, 10, 6, 3, 1, 1, 1, 2];
@@ -319,7 +308,7 @@ test("alternating investigation steps keep exact costs and put the latest work l
 
 test("failed attempts and retries with the same title remain distinct", () => {
   const view = fixture();
-  view.nodes.push({ ...view.nodes[2], id: "retry", state: "active", bump: null });
+  view.nodes.push({ ...view.nodes[1], id: "retry", state: "active", bump: null });
   view.visits = roadmap.appendVisits(
     [],
     [
@@ -338,12 +327,12 @@ test("failed attempts and retries with the same title remain distinct", () => {
 
 test("steps accumulate within an episode while returned episodes keep separate costs", () => {
   const view = fixture();
-  view.nodes[2].state = "active";
-  view.nodes[2].bump!.evidence = [1];
+  view.nodes[1].state = "active";
+  view.nodes[1].bump!.evidence = [1];
   view.nodes.push(
-    { ...view.nodes[2], id: "s2", title: "Inspect retry logs", bump: null },
-    { ...view.nodes[1], id: "e2", title: "Verify cache accounting" },
-    { ...view.nodes[2], id: "s3", parent: "e2", title: "Check cache receipts", bump: null },
+    { ...view.nodes[1], id: "s2", title: "Inspect retry logs", bump: null },
+    { ...view.nodes[0], id: "e2", title: "Verify cache accounting" },
+    { ...view.nodes[1], id: "s3", parent: "e2", title: "Check cache receipts", bump: null },
   );
   view.visits = roadmap.appendVisits(
     [],
@@ -384,7 +373,7 @@ test("steps accumulate within an episode while returned episodes keep separate c
     ).toMatch(/▶ Run resume tests\s+500\s+1\s+50/);
     const last = planView.tail(view, 30).rows.at(-1)!;
     expect(last.kind === "node" && last.current).toBe(true);
-    view.nodes[2].bump!.state = "resolved";
+    view.nodes[1].bump!.state = "resolved";
     const updated = planView.tail(view, 30).rows.filter(r => r.kind === "node");
     expect(updated.find(r => r.node.id === "s")!.node.bump?.state).toBe("resolved");
     expect(updated.at(-1)!.node.bump).toBeNull();
@@ -423,10 +412,10 @@ test("a running agent keeps a tail marker between named steps without reopening 
     expect(planView.tail(view, 3, true).rows.at(-1)).toEqual({ kind: "pending", parent: null, active: true });
     expect(view).toEqual(before);
     expect(draw(false)).not.toContain("▶");
-    view.nodes[1].state = "active";
+    view.nodes[0].state = "active";
     expect((draw(true).match(/▶/g) ?? []).length).toBe(2);
     expect(terminal.text()).toContain("┣▶ …");
-    view.nodes[2].state = "active";
+    view.nodes[1].state = "active";
     expect(draw(true)).not.toContain("▶ …");
     expect((terminal.text().match(/▶/g) ?? []).length).toBe(2);
     expect(draw(false)).not.toContain("▶");

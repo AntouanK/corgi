@@ -45,6 +45,15 @@ export class Actor {
   status_inference = new Conversation();
   activity_timeline = new Timeline();
   activity_plan = new Roadmap();
+  clearPlan() {
+    this.activity_plan = new Roadmap();
+    this.activity_timeline = new Timeline();
+    this.status_inference = new Conversation();
+    if (this.state.activity_inferred) {
+      this.state.setActivity("");
+      this.state.activity_inferred = false;
+    }
+  }
   background_tasks = new background_tasks.Inventory();
   checklist = new checklist.List();
   /** The background shells its last Stop listed, each of which can wake it. */

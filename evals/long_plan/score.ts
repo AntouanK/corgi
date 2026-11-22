@@ -18,12 +18,12 @@ export type Check =
     }
   | { name: string; kind: "bump_count"; count: number }
   | { name: string; kind: "no_bump_started"; from: number; to: number }
-  | { name: string; kind: "same_episode" | "different_episode" | "same_goal" | "different_goal"; a: number; b: number }
+  | { name: string; kind: "same_episode" | "different_episode"; a: number; b: number }
   | {
       name: string;
       kind: "topic" | "subtitle" | "label";
       event: number;
-      level: "goal" | "episode" | "step";
+      level: "episode" | "step";
       pattern: string;
       at?: number;
     }
@@ -31,7 +31,7 @@ export type Check =
       name: string;
       kind: "state";
       event: number;
-      level: "goal" | "episode" | "step";
+      level: "episode" | "step";
       state: plan.Node["state"];
       at: number;
     };
@@ -46,7 +46,7 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
   const state = snapshots.at(-1) ?? plan.empty(),
     tokens = plan.ledger(state, data);
   const rootTotal = state.nodes
-    .filter(n => n.kind === "goal")
+    .filter(n => n.parent === null)
     .reduce((n, root) => history.add(n, tokens.counts[root.id]), tokens.unattributed);
   const result: Result[] = [
     {
@@ -130,14 +130,10 @@ export function score(data: History, snapshots: State[], checks: Check[]): Resul
         break;
       }
       case "same_episode":
-      case "different_episode":
-      case "same_goal":
-      case "different_goal": {
-        const level = check.kind === "same_goal" || check.kind === "different_goal" ? "goal" : "episode";
-        const a = ancestor(state, check.a, level),
-          b = ancestor(state, check.b, level);
-        pass =
-          !!a && !!b && (["different_episode", "different_goal"].includes(check.kind) ? a.id !== b.id : a.id === b.id);
+      case "different_episode": {
+        const a = ancestor(state, check.a, "episode"),
+          b = ancestor(state, check.b, "episode");
+        pass = !!a && !!b && (check.kind === "different_episode" ? a.id !== b.id : a.id === b.id);
         detail = `${a?.title ?? "unassigned"} / ${b?.title ?? "unassigned"}`;
         break;
       }
@@ -190,7 +186,7 @@ export function metrics(data: History, snapshots: State[]) {
   return {
     events: data.events.length,
     tools: data.events.filter(e => e.kind === "tool").length,
-    goals: final.nodes.filter(n => n.kind === "goal").length,
+    goals: 0,
     episodes: final.nodes.filter(n => n.kind === "episode").length,
     steps: final.nodes.filter(n => n.kind === "step").length,
     title_changes: changedTitles,

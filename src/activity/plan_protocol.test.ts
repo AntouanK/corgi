@@ -10,8 +10,7 @@ const seed = (): Input => {
   const state = protocol.apply(
     input,
     raw(
-      ["+", "g", null, "Fix downloads", "Resume interrupted transfers", "a", 1],
-      ["+", "e", "g", "Repair offsets", "Retain the downloaded bytes", "a", 1],
+      ["+", "e", null, "Repair offsets", "Retain the downloaded bytes", "a", 1],
       ["+", "s", "e", "Test resume", "Check retry offsets", "a", 1],
       ["@", 1, "s", 1],
     ),
@@ -41,23 +40,28 @@ test("compact operations preserve the canonical tree, coverage and failed attemp
   });
   expect(fixed.patch.nodes.every(n => n.kind && n.subtitle && n.parent)).toBe(true);
   expect(protocol.apply(input, raw(["@", 3, "s", 1])).patch.nodes).toEqual([]);
-  expect(() => protocol.apply(next, raw(["=", "s", "d", 4], ["@", 4, "s", 1]))).toThrow("RewrittenFailure");
-  expect(() =>
-    protocol.apply(input, raw(["!", "s", "verification", "Failed check", 2], ["=", "s", "d", 3], ["@", 3, "s", 1])),
-  ).toThrow("RewrittenFailure");
+  // A failed attempt stays failed without rejecting the batch.
+  const kept = protocol.apply(next, raw(["=", "s", "d", 4], ["@", 4, "s", 1]));
+  expect(kept.state.nodes.find(n => n.id === "s")?.state).toBe("failed");
+  expect(kept.repairs).toContain("kept failed attempt: s");
+  expect(
+    protocol
+      .apply(input, raw(["!", "s", "verification", "Failed check", 2], ["=", "s", "d", 3], ["@", 3, "s", 1]))
+      .state.nodes.find(n => n.id === "s")?.state,
+  ).toBe("failed");
 });
 
 test("compact operations reject invalid references and mutations atomically", () => {
   const input = seed(),
     before = structuredClone(input);
   for (const ops of [
-    [["~", "s", { parent: "g" }, 2]],
+    [["~", "s", { parent: "other" }, 2]],
     [["~", "s", { s: "Future finding" }, 4]],
     [["+", "s", "e", "Replace history", "Must not replace", "d", 2]],
     [["+", "bad", "missing", "New child", "No parent exists", "a", 2]],
     [["=", "missing", "d", 2]],
     [["v", "s", 2]],
-    [["!", "g", "verification", "Ancestor bump", 2]],
+    [["!", "e", "verification", "Ancestor bump", 2]],
     [["@", 2, "s", 1]],
     [["@", 4, "s", 1]],
     [["@", 3, "e", 1]],
@@ -73,7 +77,7 @@ test("compact operations reject invalid references and mutations atomically", ()
 test("compact evidence preserves text and carries no token estimates", () => {
   const input = seed(),
     packed = JSON.parse(protocol.content(input));
-  expect(packed.tree).toHaveLength(3);
+  expect(packed.tree).toHaveLength(2);
   expect(packed.support[0]).toEqual([1, 1, "tool", "Verify downloads"]);
   expect(packed.events.map((e: unknown[]) => e[3])).toEqual(input.events.map(e => e.text));
   expect(packed.range).toEqual([2, 3]);

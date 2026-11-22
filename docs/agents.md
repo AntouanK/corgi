@@ -301,7 +301,7 @@ selection or scrolling; moving the pointer away closes the tooltip.
 
 TODO lists express intent. Bounded tool outcomes and commentary support
 problems marked ! only on the affected step. Each problem has a short explanation
-below it; resolved problems use !✓ and strike through that explanation.
+below it; resolved problems gray the ! and strike through that explanation.
 A green ▶ marks the focused episode while it is active. Its current active
 step also gets a green ▶ and bold text; completed episodes and steps are dimmed
 while older unfinished steps keep ordinary text. The trail follows attributed work

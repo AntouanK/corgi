@@ -96,7 +96,9 @@ export class Context {
         const included = new Set(changed.map(n => n.id));
         updates = input.state.nodes.filter(n => n.kind !== "step" || included.has(n.id));
       }
+      const notes = protocol.notes(input);
       content = this.encode({
+        ...(notes.length ? { notes } : {}),
         tree_updates: updates.map(protocol.node),
         support: input.support.filter(e => !support.get(e.id)?.startsWith(e.text)).map(protocol.event),
         focus: protocol.focus(input),

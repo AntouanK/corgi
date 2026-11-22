@@ -2,15 +2,15 @@ import * as plan from "./plan";
 import type { Input } from "./roadmap";
 
 export const states = { p: "planned", a: "active", d: "done", f: "failed", b: "blocked", x: "abandoned" } as const;
-export const kinds = { g: "goal", e: "episode", s: "step" } as const;
+export const kinds = { e: "episode", s: "step" } as const;
 const code = (values: Record<string, string>, value: string) => Object.keys(values).find(k => values[k] === value)!;
 
 export function describeInput(
   evidence = "Input evidence rows: [event_id,turn,kind,text]. These preserve the original text; timestamps and source line numbers are irrelevant.",
-  tree = "Input tree rows: [id,parent,kind,title,subtitle,state,evidence,bump?]. kind g=goal,e=episode,s=step. State p=planned,a=active,d=done,f=failed,b=blocked,x=abandoned. A bump is [kind,state,detail,evidence].",
+  tree = "Input tree rows: [id,parent,kind,title,subtitle,state,evidence,bump?]. kind e=episode,s=step. State p=planned,a=active,d=done,f=failed,b=blocked,x=abandoned. A bump is [kind,state,detail,evidence].",
 ) {
   return `${tree}
-${evidence} support is older evidence, events is new evidence. Assign exactly range[0] through range[1]. tree is the COMPLETE authoritative accepted state. tree_updates instead upserts rows by ID; unmentioned rows are unchanged. Accepted state overrides previous proposals. Goals, episodes and open bumps are repeated in updates so constraints and unresolved problems remain explicit. Retain previously supplied support until a complete tree resets it.
+${evidence} support is older evidence, events is new evidence. Assign exactly range[0] through range[1]. tree is the COMPLETE authoritative accepted state. tree_updates instead upserts rows by ID; unmentioned rows are unchanged. Accepted state overrides previous proposals. Episodes and open bumps are repeated in updates so constraints and unresolved problems remain explicit. Retain previously supplied support until a complete tree resets it.
 focus is the server's last foreground step. Keep it for continuity until actual new work changes activity. A final report belongs to the work being reported; mentioning an older implementation or test in a PR report does not resume it. Attribute genuinely late results to their original step with focus 0.
 `;
 }
@@ -25,7 +25,7 @@ The direct repair and retry of a recorded setback stay in the episode that owns 
 
 export const instructions = `Maintain the coding agent's durable road map. Use the compact JSON protocol below; the semantic rules describe the expanded nodes and spans, not extra output fields.
 ${inputInstructions}Output ONLY {"ops":[...]} using these operations in order:
-["+",id,parent,title,subtitle,state,evidence] creates a new node; kind is determined by its parent (null=goal, goal parent=episode, episode parent=step). Create parents first. Include all fields. Keep IDs short.
+["+",id,parent,title,subtitle,state,evidence] creates a new node; kind is determined by its parent (null=episode, episode parent=step). Create parents first. Include all fields. Keep IDs short.
 ["=",id,state,evidence] changes only a node's state.
 ["~",id,{"t":title,"s":subtitle,"q":state},evidence] changes ONLY the named fields of an existing node. Omit unchanged fields. Omitted fields retain their exact values.
 ["!",step_id,bump_kind,detail,evidence] records a concrete OPEN setback on that step. A verification bump automatically marks the step FAILED; it stays failed permanently. Successful retries need a NEW step. Other kinds retain the step state unless you change it. Keep details under 90 characters. An existing bump retains its original kind automatically; do not repeat it unless new evidence changes the explanation. A distinct new setback needs its own attempt step.
@@ -85,6 +85,8 @@ export const focus = (input: Input) =>
     ? (input.state.spans.findLast(s => s.node !== null && s.focus !== false)?.node ?? null)
     : input.focus;
 export type Envelope = {
+  conversation?: string;
+  notes?: string[];
   tree?: ReturnType<typeof node>[];
   tree_updates?: ReturnType<typeof node>[];
   accepted?: ReturnType<typeof node>[];
@@ -98,6 +100,8 @@ export type Envelope = {
 };
 export function envelope(input: Input): Envelope {
   return {
+    ...(input.conversation ? { conversation: input.conversation } : {}),
+    ...(notes(input).length ? { notes: notes(input) } : {}),
     tree: input.state.nodes.map(node),
     support: input.support.map(event),
     focus: focus(input),
@@ -105,6 +109,49 @@ export function envelope(input: Input): Envelope {
     events: input.events.map(event),
   };
 }
+/** Reminders the accepted state calls for; they change with the batch, so they sit outside the cached prompt. */
+export function notes(input: Input): string[] {
+  const out: string[] = [],
+    { nodes, spans } = input.state;
+  if (plan.turnEnded(input.events))
+    out.push(
+      `The turn ends at event ${input.events.at(-1)!.id}. For each episode and step worked in this turn, make the subtitle state the final result from the agent's closing message; replace wording such as pending, running, awaiting or unverified that the message settles, and resolve the open errors it settles.`,
+    );
+  // The episode work just left keeps whatever its subtitle said mid-flight unless someone asks.
+  const parent = (id: string | null) => nodes.find(n => n.id === id)?.parent ?? null,
+    worked = spans.filter(span => parent(span.node) !== null),
+    now = parent(worked.at(-1)?.node ?? null),
+    left = worked.findLast(span => parent(span.node) !== now);
+  if (left && spans.at(-1)!.to - left.to <= recent) {
+    const episode = nodes.find(n => n.id === parent(left.node))!;
+    out.push(
+      `Work left episode ${episode.id} at event ${left.to}. If its subtitle does not state where that work ended (a result, an answer, or what remains), rewrite it now.`,
+    );
+  }
+  const size = new Map<string, number>();
+  let owned = 0;
+  for (const span of spans) {
+    const parent = nodes.find(n => n.id === span.node)?.parent;
+    if (!parent) continue;
+    size.set(parent, (size.get(parent) ?? 0) + span.to - span.from + 1);
+    owned += span.to - span.from + 1;
+  }
+  const current = nodes.find(n => n.id === focus(input))?.parent,
+    steps = nodes.filter(n => n.parent === current).length;
+  // Only where a new request can change the subject; repeated every batch it splits one deliverable into fragments.
+  const asked = input.events.some(e => e.turn !== (input.support.at(-1)?.turn ?? e.turn));
+  if (asked && current && owned >= large.events && steps >= large.steps && size.get(current)! / owned >= large.share)
+    out.push(
+      `Episode ${current} already holds ${steps} steps and ${Math.round((100 * size.get(current)!) / owned)}% of the work. Apply the title test strictly: new work that its title does not name is a new episode.`,
+    );
+  return out;
+}
+/** How many events after work moves to another episode the model is still asked to finish the old one's subtitle. */
+const recent = 12;
+/** A step this short between two stretches of one episode stays in that episode. */
+const detour = 3;
+/** When the focused episode is big enough to remind the model to check for a second deliverable. */
+const large = { events: 150, steps: 8, share: 0.4 };
 export const encode = (input: Envelope) => JSON.stringify(input);
 export const content = (input: Input) => encode(envelope(input));
 function evidence(value: unknown): number[] {
@@ -138,6 +185,7 @@ export function applyOperations(input: Input, operations: unknown[]) {
   if (!input.events.length) throw Error("InvalidPrefix");
   const current = new Map(input.state.nodes.map(n => [n.id, n])),
     changed = new Map<string, plan.Node>(),
+    dropped: string[] = [],
     spans: plan.Span[] = [];
   let next = input.events[0].id;
   for (const op of operations) {
@@ -160,11 +208,10 @@ export function applyOperations(input: Input, operations: unknown[]) {
     let n: plan.Node;
     if (name === "+") {
       if (op.length !== 7 || old) throw Error("InvalidCreation");
-      const parent = current.get(op[2]);
       n = {
         id,
         parent: op[2],
-        kind: op[2] === null ? "goal" : parent?.kind === "goal" ? "episode" : "step",
+        kind: op[2] === null ? "episode" : "step",
         title: op[3],
         subtitle: op[4],
         state: state(op[5]),
@@ -201,8 +248,13 @@ export function applyOperations(input: Input, operations: unknown[]) {
           break;
         }
         case "!":
-          if (op.length !== 5 || n.bump?.state === "resolved") throw Error("InvalidSetback");
+          if (op.length !== 5) throw Error("InvalidSetback");
           if (!plan.bumpKinds.includes(op[2])) throw Error("InvalidBump");
+          // A step keeps its one failure. Rejecting the batch for a second one stalled the plan on every retry.
+          if (n.bump?.state === "resolved") {
+            dropped.push(`kept resolved setback: ${id}`);
+            break;
+          }
           const cited = evidence(op[4]);
           if (n.bump && !cited.includes(n.bump.evidence[0])) cited.unshift(n.bump.evidence[0]);
           n.bump = { kind: n.bump?.kind ?? op[2], state: "open", detail: op[3], evidence: cited };
@@ -225,9 +277,58 @@ export function applyOperations(input: Input, operations: unknown[]) {
           throw Error("InvalidOperation");
       }
     }
-    if (old?.kind === "step" && old.state === "failed" && n.state !== "failed") throw Error("RewrittenFailure");
+    // A failed attempt stays failed. Keeping it is cheaper than rejecting a batch the model then repeats.
+    if (old?.kind === "step" && old.state === "failed" && n.state !== "failed") {
+      n.state = "failed";
+      dropped.push(`kept failed attempt: ${id}`);
+    }
     current.set(id, n);
     changed.set(id, n);
   }
-  return plan.apply(input.state, JSON.stringify({ nodes: [...changed.values()], spans }), input.events);
+  // A new step of a few events between two stretches of another episode is a detour inside that episode.
+  // Filing it elsewhere makes the tooltip jump between episodes for an amend or a one-line answer.
+  const owners = [input.state.spans.findLast(span => span.node !== null), ...spans].flatMap(span =>
+      span?.node ? [span] : [],
+    ),
+    episode = (id: string) => current.get(id)?.parent ?? null;
+  for (const n of [...changed.values()]) {
+    if (n.kind !== "step" || input.state.nodes.some(old => old.id === n.id)) continue;
+    const own = owners.filter(span => span.node === n.id);
+    if (!own.length || own.reduce((sum, span) => sum + span.to - span.from + 1, 0) > detour) continue;
+    const before = owners[owners.indexOf(own[0]) - 1],
+      after = owners[owners.indexOf(own.at(-1)!) + 1];
+    if (!before || !after) continue;
+    const around = episode(before.node!);
+    if (!around || around !== episode(after.node!) || around === n.parent) continue;
+    const left = n.parent!,
+      moved = { ...n, parent: around };
+    current.set(n.id, moved);
+    changed.set(n.id, moved);
+    dropped.push(`kept detour in ${around}: ${n.id}`);
+    if (
+      !input.state.nodes.some(old => old.id === left) &&
+      ![...current.values()].some(child => child.parent === left)
+    ) {
+      current.delete(left);
+      changed.delete(left);
+    }
+  }
+  const settle = () => plan.apply(input.state, JSON.stringify({ nodes: [...changed.values()], spans }), input.events);
+  let applied = settle();
+  // A valid step created as already worked but given no event has no place in the timeline.
+  const unowned = [...changed.values()].filter(
+    n =>
+      n.kind === "step" &&
+      n.state !== "planned" &&
+      !input.state.nodes.some(old => old.id === n.id) &&
+      !spans.some(span => span.node === n.id),
+  );
+  if (unowned.length) {
+    for (const n of unowned) {
+      changed.delete(n.id);
+      dropped.push(`dropped unowned step: ${n.id}`);
+    }
+    applied = settle();
+  }
+  return { ...applied, repairs: [...dropped, ...applied.repairs] };
 }

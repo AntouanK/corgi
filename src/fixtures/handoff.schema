@@ -28,6 +28,7 @@ $.summaries?.slots[].slot.request.generation: u64
 $.summaries?.slots[].slot.request.completed_tools: u64
 $.summaries?.slots[].slot.request.turn_epoch: u32
 $.summaries?.slots[].slot.commentary: custom bounded_text.BoundedText(2048)
+$.summaries?.slots[].slot.transcript_commentary: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.tool_evidence: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.next: i64
 $.summaries?.slots[].slot.attempted_tools: u64

@@ -10,17 +10,8 @@ import * as protocol from "../../src/activity/plan_protocol";
 const event = (id: number): plan.Event => ({ id, line: id, at: "", turn: 1, kind: "tool", text: "Run unit tests" });
 const nodes: plan.Node[] = [
   {
-    id: "g",
-    parent: null,
-    kind: "goal",
-    title: "Fix downloads",
-    subtitle: "Preserve partial files",
-    state: "active",
-    evidence: [1],
-  },
-  {
     id: "e",
-    parent: "g",
+    parent: null,
     kind: "episode",
     title: "Repair resume",
     subtitle: "Correct retry offsets",
@@ -45,8 +36,8 @@ const input = (): Input => ({
 
 test("sparse updates retain identity, subtitles and bumps, with full validation", () => {
   const source = input();
-  source.state.nodes[2].state = "failed";
-  source.state.nodes[2].bump = { kind: "verification", state: "open", detail: "Offset repeats bytes", evidence: [1] };
+  source.state.nodes[1].state = "failed";
+  source.state.nodes[1].bump = { kind: "verification", state: "open", detail: "Offset repeats bytes", evidence: [1] };
   const before = structuredClone(source);
   const spans = [{ from: 2, to: 2, node: "s", focus: true }];
   const raw = JSON.stringify({
@@ -60,15 +51,15 @@ test("sparse updates retain identity, subtitles and bumps, with full validation"
     spans,
   });
   const applied = plan.apply(source.state, raw, source.events);
-  expect(applied.state.nodes[2]).toEqual({
-    ...before.state.nodes[2],
+  expect(applied.state.nodes[1]).toEqual({
+    ...before.state.nodes[1],
     evidence: [2],
     bump: { kind: "verification", state: "resolved", detail: "Retry passed", evidence: [1, 2] },
   });
   expect(source).toEqual(before);
   for (const update of [
     { id: "new", state: "active", evidence: [2] },
-    { id: "s", parent: "g", evidence: [2] },
+    { id: "s", parent: null, evidence: [2] },
     { id: "s", state: "done", evidence: [2] },
     { id: "s", title: "Future claim", evidence: [3] },
     { id: "s", extra: true, evidence: [2] },
@@ -98,7 +89,7 @@ test("cached requests echo accepted changes and keep a complete seed for evictio
   expect(continuation.conversation).toBe(request.conversation);
   expect(continuation.schema).toBe(request.schema);
   expect(JSON.parse(continuation.content)).toMatchObject({
-    tree_updates: [nextState.nodes[2]],
+    tree_updates: [nextState.nodes[1]],
     support: [event(2)],
     assign_from: 3,
     assign_through: 3,

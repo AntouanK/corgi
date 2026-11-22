@@ -5,7 +5,14 @@ import type { View } from "../usage/live";
 
 export type Counts = { input: string; cached: string; output: string; tools?: string };
 export type Visit = { step: string; from: number; to: number; counts: Counts };
-export type Input = { state: plan.State; events: plan.Event[]; support: plan.Event[]; focus?: string | null };
+export type Input = {
+  state: plan.State;
+  events: plan.Event[];
+  support: plan.Event[];
+  focus?: string | null;
+  /** The conversation's title, attached for inference only; never saved. */
+  conversation?: string;
+};
 export type Snapshot = {
   nodes: plan.Node[];
   visits: Visit[];
@@ -83,7 +90,7 @@ export function decode(value: unknown): Snapshot {
   if (!Number.isSafeInteger(through)) throw Error("InvalidRoadmap");
   const nodes = plan.apply(
     plan.empty(),
-    JSON.stringify({ nodes: v.nodes, spans: [{ from: 1, to: through, node: null }] }),
+    JSON.stringify({ nodes: plan.flatten(v.nodes), spans: [{ from: 1, to: through, node: null }] }),
     [
       { id: 1, line: 1, at: "", turn: 0, kind: "lifecycle", text: "" },
       ...(through > 1 ? [{ id: through, line: through, at: "", turn: 0, kind: "lifecycle" as const, text: "" }] : []),

@@ -7,9 +7,7 @@ import type { Input } from "./roadmap";
 
 const event = (id: number): plan.Event => ({ id, turn: 1, line: id, at: "", kind: "tool", text: "Verify downloads" });
 const seed = `BEGIN_PLAN
-mkdir /g active Fix downloads
-set /g subtitle Resume interrupted transfers
-mkdir /g/e active Repair offsets
+mkdir /e active Repair offsets
 set /e subtitle Retain downloaded bytes
 cd /e
 mkdir s active Test resume
@@ -25,15 +23,15 @@ const input = (): Input => ({
 test("absolute, anchored and relative paths select the same stable node", () => {
   const source = input(),
     before = structuredClone(source);
-  const expected = filesystem.apply(source, "set /g/e/s done\nwork /s").state;
+  const expected = filesystem.apply(source, "set /e/s done\nwork /s").state;
   for (const raw of [
-    "set /e/s done\nwork /s",
+    "set /s done\nwork /s",
     "cd /e\nset s done # verified\nwork /s",
-    "cd /g/e\ncd ..\nset e/s done\nwork /s",
+    "cd /e\ncd ..\nset e/s done\nwork /s",
   ])
     expect(filesystem.apply(source, raw).state).toEqual(expected);
   expect(source).toEqual(before);
-  expect(() => filesystem.apply(source, "set /g/s done\nwork /s")).toThrow("InvalidPath");
+  expect(() => filesystem.apply(source, "set /e2/s done\nwork /s")).toThrow("InvalidPath");
   expect(() => filesystem.apply(source, "cd /s\nwork /s")).toThrow("NotDirectory");
 });
 
@@ -131,12 +129,11 @@ error s resolved Retry passes after retaining the saved offset`,
     bump: { state: "resolved", kind: "verification", detail: "Retry duplicated bytes", evidence: [2, 4] },
   });
   expect(recovered.patch.spans[0].node).toBe("retry");
-  expect(() =>
-    filesystem.apply(
-      { state: failed, support: [], events: [event(4)] },
-      "error /s resolved Retry passes\nset /s done\nnote /s",
-    ),
-  ).toThrow("RewrittenFailure");
+  expect(
+    filesystem
+      .apply({ state: failed, support: [], events: [event(4)] }, "error /s resolved Retry passes\nset /s done\nnote /s")
+      .state.nodes.find(n => n.id === "s")?.state,
+  ).toBe("failed");
   expect(() => filesystem.apply(source, "error /s resolved\nwork /s")).toThrow("InvalidOperation");
   const together = filesystem.apply(
     source,
@@ -151,7 +148,7 @@ test("mv regroups new nodes without moving accepted history or changing identiti
   const result = filesystem.apply(
     source,
     `mkdir /e/new planned Check export shape
-mkdir /g/e2 active Inspect export shape
+mkdir /e2 active Inspect export shape
 set /e2 subtitle Preserve the existing export format
 mv /new /e2/
 set /new subtitle Compare fields against existing fixtures
@@ -162,8 +159,8 @@ ignore`,
   expect(source).toEqual(before);
   for (const invalid of [
     "mv /s /e/\nignore",
-    "mkdir /e/new planned Verify export\nset /new subtitle Verify export shape\nmv /new /g/\nignore",
-    "mkdir /g2 active Different goal\nset /g2 subtitle Separate requested outcome\nmv /g2 /e/\nignore",
+    "mkdir /e/new planned Verify export\nset /new subtitle Verify export shape\nmv /new /\nignore",
+    "mkdir /e3 active Different outcome\nset /e3 subtitle Separate requested outcome\nmv /e3 /e/\nignore",
   ]) {
     expect(() => filesystem.apply(source, invalid)).toThrow();
     expect(source).toEqual(before);
@@ -181,7 +178,7 @@ test("text remains literal and invalid programs reject atomically", () => {
     "",
     "BEGIN_PLAN",
     "Here is prose\nwork /s",
-    "mkdir /g active Duplicate goal\nignore",
+    "mkdir /e active Duplicate episode\nignore",
     "mkdir /s/child active Too deep\nset _ subtitle Invalid child\nignore",
     "mkdir /e/_ active Reserved alias\nignore",
     "set /s complete\nwork /s",
@@ -210,8 +207,8 @@ test("cached input and repair seeds use the same path layout and reset navigatio
     request = context.prepare(source);
   const data = JSON.parse(request.content.split("\n")[0]);
   expect(data).toMatchObject({ cwd: "/" });
-  expect(data.tree.map((row: unknown[]) => row[0])).toEqual(["/g", "/g/e", "/g/e/s"]);
-  expect(data.tree[2]).toEqual(["/g/e/s", "step", "Test resume", "Check retry offsets", "active"]);
+  expect(data.tree.map((row: unknown[]) => row[0])).toEqual(["/e", "/e/s"]);
+  expect(data.tree[1]).toEqual(["/e/s", "step", "Test resume", "Check retry offsets", "active"]);
   expect(request.content).toContain("@2 1 tool\n Verify downloads");
   const retry = context.retry(source, "set _ done", "InvalidPath", { input: 10000n, output: 100n });
   expect(retry.conversation).toBe(request.conversation);
@@ -222,6 +219,6 @@ test("cached input and repair seeds use the same path layout and reset navigatio
   context.accept(source, next, { input: 10000n, output: 100n });
   const delta = context.prepare({ state: next, events: [event(4)], support: source.events });
   expect(JSON.parse(delta.content.split("\n")[0])).toMatchObject({ cwd: "/", focus: "/s" });
-  expect(JSON.parse(delta.content.split("\n")[0]).tree_updates).toHaveLength(2);
+  expect(JSON.parse(delta.content.split("\n")[0]).tree_updates).toHaveLength(1);
   expect(filesystem.encode(protocol.envelope(source))).toBe(request.content);
 });

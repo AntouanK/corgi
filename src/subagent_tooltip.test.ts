@@ -46,17 +46,8 @@ test("the agent tooltip replaces recent phases with the plan and preserves its o
   plan.focus_step = "current";
   plan.nodes = [
     {
-      id: "g",
-      parent: null,
-      kind: "goal",
-      title: "Repair downloads",
-      subtitle: "Keep resumed data intact",
-      state: "active",
-      evidence: [1],
-    },
-    {
       id: "e",
-      parent: "g",
+      parent: null,
       kind: "episode",
       title: "Correct retry offsets",
       subtitle: "Preserve the partial file",
@@ -97,9 +88,9 @@ test("the agent tooltip replaces recent phases with the plan and preserves its o
     const frame = render(w => draw(w, [root], e, 100, 30, 5, 18));
     terminal.feed(frame);
     const screen = terminal.text();
-    expect(screen).toContain("Repair downloads");
+    expect(screen).toContain("Long-term plan");
     expect(screen).toContain("▶ Correct retry offsets");
-    expect(screen).toContain("├!✓ Run resume tests");
+    expect(screen).toContain("├! Run resume tests");
     expect(screen).toContain("┣▶ Fix retry");
     expect(screen).toContain("Expected offset 20 but got 0");
     expect(frame).toContain(new palette.Style({ fg: "faint", bg: "bg", bold: false, strike: true }).sgr());
@@ -113,7 +104,7 @@ test("the agent tooltip replaces recent phases with the plan and preserves its o
     terminal.destroy();
   }
   for (let i = 0; i < 30; i++)
-    plan.nodes.splice(-1, 0, { ...plan.nodes[3], id: `old${i}`, title: `Earlier work ${i}`, state: "done" });
+    plan.nodes.splice(-1, 0, { ...plan.nodes[2], id: `old${i}`, title: `Earlier work ${i}`, state: "done" });
   for (const [cols, rows] of [
     [100, 18],
     [64, 13],

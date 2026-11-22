@@ -6,7 +6,7 @@ import { Agent, Provider, Text } from "../agents";
 import * as summary from "./summary";
 import * as prompt from "./prompt";
 import * as roadmap from "./roadmap";
-import type { View as ToolView } from "./tools";
+import { clip, type View as ToolView } from "./tools";
 import { Backend, outcome } from "../summary_backend";
 import * as setup from "../inference/setup";
 import { Selection, automatic } from "../inference/models";
@@ -102,6 +102,7 @@ export class Result {
 }
 export class Slot {
   road_evidence = new summary.Text();
+  transcript_commentary = new summary.Text();
   attempted_road = 0;
   commentary = new summary.Text();
   tool_evidence = new summary.Text();
@@ -147,6 +148,7 @@ export class Slot {
       this.retry = false;
     }
     this.road_evidence = progress.road_evidence;
+    this.transcript_commentary = progress.commentary;
     this.request.completed_tools = progress.completed;
     this.updateTools(progress.evidence, now);
   }
@@ -478,13 +480,16 @@ export class Worker {
   }
   observeRoad(owner: Actor, slot: Slot) {
     const now = clock.milliTimestamp();
+    const evidence = slot.transcript_commentary.len
+      ? clip(slot.transcript_commentary.text(), 1024) + "\n" + slot.tool_evidence.text()
+      : slot.request.evidence.text();
     owner.activity_plan.observe(
       owner.state.turnId(),
       owner.state.state,
       (adapter(owner.provider()).caps.native_activity
         ? "Native tool intent: " + owner.state.activity.text() + "\n"
         : "") +
-        slot.request.evidence.text() +
+        evidence +
         "\n" +
         slot.road_evidence.text(),
       owner.checklist,
@@ -651,7 +656,7 @@ export class Worker {
             tools_since_last: tools,
           },
           { load: () => this.stopping },
-          request.road,
+          request.road && request.name.len ? { ...request.road, conversation: request.name.text() } : request.road,
         );
       this.system_meter = this.implementation.pool.system_usage.meter;
       const current = this.slots[index];

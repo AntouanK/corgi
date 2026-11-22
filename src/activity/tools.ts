@@ -54,6 +54,18 @@ export class Call {
     if (typeof saved.value !== "string" || Buffer.byteLength(saved.value) > 240) throw Error("InvalidCheckpoint");
     return Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
   }
+  /** A finished call with what it reported; older handoffs carry none. */
+  static restoreOutcome(saved: any) {
+    const call = Call.restore(saved);
+    if (
+      !call ||
+      ![null, "success", "failure"].includes(saved.outcome ?? null) ||
+      typeof (saved.result ?? "") !== "string" ||
+      Buffer.byteLength(saved.result ?? "") > 320
+    )
+      throw Error("InvalidCheckpoint");
+    return Object.assign(call, { outcome: saved.outcome ?? null, result: saved.result ?? "" });
+  }
   text() {
     return this.value;
   }
@@ -119,6 +131,8 @@ export class Call {
 }
 export class Tracker {
   prompt = new Text();
+  /** This turn's requests, oldest first: the one that started it and those typed while the agent worked. */
+  asked: { text: string; queued: boolean }[] = [];
   commentary = new Text();
   turn = new Turn();
   ended = false;
@@ -153,8 +167,26 @@ export class Tracker {
     t.next_pending = saved.next_pending;
     t.seen = saved.seen.map(BigInt);
     t.recent = saved.recent.map(Call.restore);
+    if (saved.outcomes !== undefined) {
+      if (!Array.isArray(saved.outcomes) || saved.outcomes.length > 4) throw Error("InvalidCheckpoint");
+      t.outcomes = saved.outcomes.map(Call.restoreOutcome);
+    }
     t.dirty = saved.dirty === true;
     return t;
+  }
+  /** A person's message in this turn; `queued` when it arrived while the agent was working. */
+  ask(text: string, queued: boolean) {
+    this.prompt = new Text(clip(text, 512));
+    this.asked = [...this.asked, { text: clip(text.replace(/\s+/g, " "), 300), queued }].slice(-4);
+    this.dirty = true;
+  }
+  /** The request heading: one message as before, several as a list so a waiting one stays visible. */
+  requests() {
+    if (this.asked.length < 2) return this.prompt.len ? "User request: " + this.prompt.text() + "\n" : "";
+    return (
+      "User requests this turn (oldest to newest):\n" +
+      this.asked.map((m, i) => `${i + 1}. ${m.text}${m.queued ? " [sent while the agent was working]" : ""}\n`).join("")
+    );
   }
   bind(turn: string) {
     if (!turn || turn === this.turn.text() || Buffer.byteLength(turn) > 160) return;
@@ -192,11 +224,7 @@ export class Tracker {
       })
       .join("\n");
     out.road_evidence = new Text(
-      clip(
-        (this.prompt.len ? "User request: " + this.prompt.text() + "\n" : "") +
-          (outcomes ? "Recent tool outcomes (oldest to newest):\n" + outcomes : ""),
-        2048,
-      ),
+      clip(this.requests() + (outcomes ? "Recent tool outcomes (oldest to newest):\n" + outcomes : ""), 2048),
     );
     out.evidence = new Text(clip(evidence, 2048));
     return out;

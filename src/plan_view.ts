@@ -137,10 +137,6 @@ export function tail(view: roadmap.Snapshot, count: number, running: boolean | n
   return { rows, hidden: all.filter(r => r.kind === "node").length - rows.filter(r => r.kind === "node").length };
 }
 export const height = (rows: Row[]) => rows.reduce((sum, row) => sum + rowHeight(row), 0);
-export function goal(view: roadmap.Snapshot) {
-  const episode = view.nodes.find(n => n.id === view.focus);
-  return view.nodes.find(n => n.id === episode?.parent) ?? view.nodes.findLast(n => n.kind === "goal");
-}
 export function drawRows(
   view: roadmap.Snapshot,
   rows: Row[],
@@ -181,7 +177,7 @@ export function drawRows(
     const branch = current ? "┣" : last ? "╰" : "├",
       prefix = depth ? "    " + branch : "  ",
       active = focused || current,
-      issue = node.bump ? (node.bump.state === "resolved" ? "!✓" : "!") : "",
+      issue = node.bump ? "!" : "",
       marker = (active ? "▶" : "") + issue || " ",
       counts = entry.counts ?? view.counts[node.id] ?? roadmap.zero(),
       suffix = node.state === "planned" ? " (planned)" : "";
@@ -228,11 +224,11 @@ export function draw(w: text.Writer, rect: Rect, name: string, view: roadmap.Sna
     episode =
       view.nodes.find(n => n.id === view.focus) ??
       (last?.kind === "step" ? view.nodes.find(n => n.id === last.parent) : last),
-    goal = view.nodes.find(n => n.id === episode?.parent) ?? view.nodes.findLast(n => n.kind === "goal");
+    heading = episode;
   const observed = view.nodes
-    .filter(n => n.kind === "goal")
+    .filter(n => n.kind === "episode")
     .reduce((sum, n) => roadmap.add(sum, view.counts[n.id] ?? roadmap.zero()), view.unassigned);
-  line(1, goal ? "  " + goal.title : "", "strong");
+  line(1, heading ? "  " + heading.title : "", "strong");
   line(2, hidden ? `  … ${hidden} earlier items` : "─".repeat(rect.w), hidden ? "muted" : "line");
   const columns = rect.w >= 88 ? 3 : rect.w >= 60 ? 2 : 1;
   const metric = (values: string[]) =>

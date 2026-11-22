@@ -5,9 +5,7 @@ import * as json from "./plan_protocol";
 import type { Input } from "./roadmap";
 
 const event = (id: number): plan.Event => ({ id, turn: 1, line: id, at: "", kind: "tool", text: "Verify downloads" });
-const seed = `new g - active Fix downloads
-sub g Resume interrupted transfers
-new e g active Repair offsets
+const seed = `new e - active Repair offsets
 sub e Retain downloaded bytes
 new s e active Test resume
 sub s Check retry offsets
@@ -60,7 +58,7 @@ work 3 retry`,
   });
   expect(plan.apply(source.state, JSON.stringify(result.patch), source.events).state).toEqual(result.state);
   const later = { state: result.state, support: source.events, events: [event(4)] };
-  expect(() => lines.apply(later, "state s done\nwork 4 retry")).toThrow("RewrittenFailure");
+  expect(lines.apply(later, "state s done\nwork 4 retry").state.nodes.find(n => n.id === "s")?.state).toBe("failed");
   const failed = lines.apply(source, "bump s verification Retry duplicated bytes\nwork 3 s").state;
   const recovered = lines.apply({ ...later, state: failed }, "resolve s\nnote 4 s");
   expect(recovered.state.nodes.find(n => n.id === "s")?.bump?.evidence).toEqual([2, 4]);
@@ -124,7 +122,7 @@ test("all new batch IDs are retained internally and never echoed to the model as
   const encoded = lines.encode(json.envelope({ state: failed, support: source.events, events: [event(13)] }));
   const metadata = JSON.parse(encoded.split("\n")[0]);
   expect(metadata.tree[0]).toHaveLength(6);
-  expect(metadata.tree[2][6]).toEqual(["verification", "open", "Offset repeated"]);
+  expect(metadata.tree[1][6]).toEqual(["verification", "open", "Offset repeated"]);
   expect(encoded).toContain("@13 1 tool\n Verify downloads");
   expect(failed).toEqual(original);
 });
@@ -137,7 +135,7 @@ test("redundant creations and harmless syntax normalize without changing meaning
     plain = lines.apply(source, "sub s Verified byte offsets\nwork 3 s");
   expect(result.state).toEqual(plain.state);
   expect(result.repairs).toEqual(["ignored redundant creation: s"]);
-  expect(() => lines.apply(source, repeated.replace(`new s ${old.parent}`, "new s g"))).toThrow("InvalidCreation");
+  expect(() => lines.apply(source, repeated.replace(`new s ${old.parent}`, "new s -"))).toThrow("InvalidCreation");
   expect(() => lines.apply(source, repeated.replace(old.title, "Different work activity"))).toThrow("InvalidCreation");
   const repaired = lines.apply(source, "BEGIN_PLAN\nwork through 3 s\nwork 3 s\nEOF");
   expect(repaired.state).toEqual(lines.apply(source, "work 3 s").state);

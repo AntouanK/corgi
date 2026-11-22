@@ -131,7 +131,7 @@ export function progress(t: Tools, value: any, live: boolean) {
   if (kind !== "response_item" || !t.turn.len || t.ended) return;
   if (type === "message" && str(p, "role") === "user") {
     const content = field(p, "content");
-    if (Array.isArray(content)) t.prompt = new Text(clip(content.map(c => str(c, "text")).join("\n"), 512));
+    if (Array.isArray(content)) t.ask(content.map(c => str(c, "text")).join("\n"), false);
   }
   if (type === "message" && str(p, "role") === "assistant" && str(p, "phase") === "commentary") {
     const content = field(p, "content");

@@ -118,6 +118,7 @@ bun run evals/long_plan/run.ts --manifest evals/long_plan/holdout.json --model c
 bun run evals/long_plan/run.ts --manifest evals/long_plan/todo_probe.json --ablation live-signals --model claude:claude-haiku-5-5
 bun run evals/long_plan/run.ts --manifest PRIVATE_MANIFEST --ablation live-signals --model codex:gpt-6-luna
 bun evals/long_plan/preview.ts RUN_DIRECTORY [RUN_DIRECTORY...]
+bun evals/long_plan/artifact.ts [--examples FILE.json] [--out FILE.html] RUN_DIRECTORY...
 bun evals/long_plan/check_visits.ts RUN_DIRECTORY [RUN_DIRECTORY...]
 ```
 
@@ -140,6 +141,22 @@ parent context; ordinary steps still occupy one line.
 The height control demonstrates shorter and taller terminals. An earlier-item
 count shows omitted history; the totals still include it. The older `view.ts` remains the original
 design study.
+`artifact.ts` writes the same replays as one self-contained page for a claude.ai
+Artifact (default `.lavish/long-plan-artifact.html`): the tooltip first, beside the
+selected example and the judge's verdict, then scrolling Good and Bad example
+panes filtered by session and category, and folded update details (the model's
+command program, rejected attempts, server repairs and the events it read,
+clipped, reasoning omitted). Each replay's frames and evidence travel gzipped in
+the page and open when it is shown. `examples.ts` writes `--examples` from judge
+verdicts: `[{replay: "RUN/CASE", event?, node?, verdict: "good" | "bad", category?, title, tldr?, note}]`.
+`event` selects the update covering it, the last one when omitted; `category` is the
+judge's fault for bad rows, and for good rows whether the praised row flags a
+problem, scopes an episode or reports a step's result.
+
+```sh
+bun evals/long_plan/examples.ts --out .lavish/long-plan-examples.json RUN_DIRECTORY...
+bun evals/long_plan/artifact.ts --examples .lavish/long-plan-examples.json RUN_DIRECTORY...
+```
 `live-signals` runs production transcript readers and their bounded evidence at
 the offline checkpoints. It is a conservative signal-loss probe: it does not
 simulate the live eight-second scheduler, hooks or app-server observations.

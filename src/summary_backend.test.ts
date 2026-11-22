@@ -8,9 +8,7 @@ import type { Input as RoadInput } from "./activity/roadmap";
 const input: Input = { provider: "codex", turn: "turn", phase: null, earlier: [], evidence: "Inspect saved links" };
 const source: Source = { actor: 1, panes: [1], agent_name: "Codex", session: "session", tools_since_last: 0n };
 const seed = `BEGIN_PLAN
-mkdir /g active Repair document links
-set /g subtitle Keep saved document links usable
-mkdir /g/e active Diagnose saved links
+mkdir /e active Diagnose saved links
 set /e subtitle Trace the missing saved index
 mkdir /e/s active Inspect document index
 set /s subtitle Read saved link lookup fields
@@ -47,7 +45,7 @@ test("live plans use the evaluated ownership prompt and keep the foreground labe
     expect(fixture.requests[0].schema).toBeNull();
     expect(result.decision?.label?.text()).toBe("Inspect document index");
     const { state } = plan.apply(first.state, result.patch!, first.events);
-    expect(state.nodes).toHaveLength(4);
+    expect(state.nodes).toHaveLength(3);
     expect(state.spans.at(-1)?.node).toBe("b");
     const next: RoadInput = {
       state,
@@ -82,7 +80,7 @@ test("live ownership retries once atomically and refreshes the cache when the fa
       expect(metadata.rejected).toBe(incomplete);
       expect(metadata.tree).toEqual([]);
       expect(first).toEqual(before);
-      if (replacement === seed) expect(JSON.parse(result.patch!).nodes).toHaveLength(4);
+      if (replacement === seed) expect(JSON.parse(result.patch!).nodes).toHaveLength(3);
       else expect(result.decision).toBeNull();
     } finally {
       fixture.backend.close();

@@ -7,6 +7,7 @@ import * as history from "./history";
 import * as plan from "./plan";
 import * as scoring from "./score";
 import { Signals } from "./signals";
+import type { Requests } from "./signals";
 import * as lines from "../../src/activity/plan_lines";
 import * as filesystem from "../../src/activity/plan_fs";
 import * as ownership from "../../src/activity/plan_owner";
@@ -84,8 +85,16 @@ async function main() {
     ops = !args.includes("--flat") && !args.includes("--legacy") && !args.includes("--cached"),
     plain = args.includes("--plain"),
     ownerVariant = option("--owner"),
-    wire = ownerVariant
-      ? ownership.variant(ownerVariant)
+    // Experiments: [[find, replace], ...] applied to the owner prompt.
+    patches: [string, string][] = option("--patch") ? JSON.parse(fs.readFileSync(option("--patch"), "utf8")) : [],
+    patched = (text: string) =>
+      patches.reduce((out, [find, replace]) => {
+        if (!out.includes(find)) throw Error(`PatchNotFound:${find.slice(0, 60)}`);
+        return out.replace(find, replace);
+      }, text),
+    owner = ownerVariant ? ownership.variant(ownerVariant) : null,
+    wire = owner
+      ? { ...owner, instructions: patched(owner.instructions) }
       : args.includes("--fs")
         ? filesystem
         : args.includes("--lines")
@@ -95,7 +104,7 @@ async function main() {
     reuse = ops && !args.includes("--stateless");
   if (!manifest)
     throw Error(
-      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--owner VARIANT | --fs | --lines | --json-ops] [--cache-budget] [--cache-turns N] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--out DIR] [--resume]",
+      "Usage: bun evals/long_plan/run.ts --manifest PATH [--prepare | --model claude:MODEL] [--case ID] [--batch 24] [--ablation no-reasoning] [--flat | --legacy | --cached | --stateless] [--plain] [--owner VARIANT | --fs | --lines | --json-ops] [--cache-budget] [--cache-turns N] [--effort low|medium|high] [--brief-thinking] [--timeout-ms N] [--patch FILE.json] [--requests latest|queued|list] [--out DIR] [--resume]",
     );
   const cacheTurns = Number(option("--cache-turns", String(priceBudget.turns)));
   if (!Number.isInteger(cacheTurns) || cacheTurns < 1 || cacheTurns > 32) throw Error("InvalidCacheTurns");
@@ -280,7 +289,10 @@ async function main() {
         );
         continue;
       }
-      const signals = ablation === "live-signals" ? new Signals(c.source, c.provider) : null;
+      const signals =
+        ablation === "live-signals"
+          ? new Signals(c.source, c.provider, option("--requests", "latest") as Requests)
+          : null;
       let state = plan.empty(),
         phase: string | null = null,
         phaseId = "",
@@ -417,20 +429,10 @@ async function main() {
               const title = decision.label.text();
               if (!phaseId || decision.action === "new") {
                 phaseId = `phase_${++phaseIndex}`;
-                if (!state.nodes.length)
-                  state.nodes.push({
-                    id: "goal",
-                    parent: null,
-                    kind: "goal",
-                    title: "Flat activity baseline",
-                    subtitle: "Production phase labels",
-                    state: "active",
-                    evidence: [events[0].id],
-                  });
                 state.nodes.push(
                   {
                     id: phaseId,
-                    parent: "goal",
+                    parent: null,
                     kind: "episode",
                     title,
                     subtitle: title,

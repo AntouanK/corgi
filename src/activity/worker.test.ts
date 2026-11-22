@@ -447,6 +447,29 @@ test("plan slots retain the final observation after a conversation stops working
   }
 });
 
+test("plan requests name the conversation without saving the name in the slot", async () => {
+  const actor = new Registry().get("codex", "named");
+  actor.state.state = "working";
+  actor.state.setTurn("turn-1");
+  actor.state.setName("Design long-term plan eval");
+  const worker = new Worker("codex");
+  worker.selected = Object.assign(new Selection(), { provider: "codex", model: "test/model" });
+  worker.catalog.refresh = async () => {};
+  let sent: unknown = null;
+  worker.implementation.infer = async (...args: Parameters<typeof worker.implementation.infer>) => {
+    sent = args[5];
+    return { request: 1n, decision: null };
+  };
+  try {
+    worker.submit(actor, new Text(), null, []);
+    await worker.run();
+    expect(sent).toMatchObject({ conversation: "Design long-term plan eval" });
+    expect(worker.slots[0]?.request.road?.conversation).toBeUndefined();
+  } finally {
+    worker.stop();
+  }
+});
+
 test("late results cannot overwrite another turn or changed evidence", () => {
   const actor = new Registry().get("codex", "s");
   const agent = actor.state;
@@ -495,6 +518,56 @@ test("the first summary of a turn sees the tools read with its commentary", () =
     expect(slot.request.evidence.text()).toContain("exec_command: rg focus src");
     expect(slot.request.evidence.text().endsWith("Tracing focus from the transcript.")).toBe(true);
     expect(slot.request.completed_tools).toBe(3n);
+  } finally {
+    worker.stop();
+  }
+});
+
+test("plan observations retain transcript commentary across sparse metadata refreshes and handoff", () => {
+  const registry = new Registry(),
+    actor = registry.get("codex", "s"),
+    worker = new Worker();
+  actor.state.state = "working";
+  actor.state.setTurn("turn-1");
+  const stale = new Text("User request: Fix the shortcut"),
+    progress = new ToolView();
+  progress.turn = new Text("turn-1");
+  progress.commentary = new Text("Latest agent update: Move the plan into the existing tooltip; no new shortcut.");
+  progress.evidence = new Text("Recent completed tools:\napply_patch: src/subagent_tooltip.ts\n");
+  progress.road_evidence = new Text("User request: Put the plan in the tooltip\nRecent tool outcomes: patch applied");
+  try {
+    worker.submit(actor, stale, null, []);
+    // Fresh provider metadata suppresses the transcript lifecycle fallback,
+    // but its commentary still belongs in the plan.
+    worker.tools(actor.id, actor.state, progress);
+    worker.reconcile(registry.items);
+    const before = actor.activity_plan.pending.length;
+    worker.submit(actor, stale, null, []);
+    expect(actor.activity_plan.pending.length).toBe(before);
+    const evidence = actor.activity_plan.pending.at(-1)!.text;
+    expect(evidence).toContain("Move the plan into the existing tooltip");
+    expect(evidence).toContain("User request: Put the plan in the tooltip");
+    expect(evidence).toContain("patch applied");
+    expect(evidence).not.toContain("Fix the shortcut");
+
+    worker.paused = true;
+    const saved = clone(worker.capture()),
+      restored = Worker.restore(saved);
+    try {
+      expect(restored.slots[0]!.transcript_commentary.text()).toBe(progress.commentary.text());
+      actor.state.setTurn("turn-2");
+      restored.submit(actor, new Text("User request: Start another task"), null, []);
+      expect(actor.activity_plan.pending.at(-1)!.text).not.toContain("Move the plan");
+    } finally {
+      restored.stop();
+    }
+    Reflect.deleteProperty(saved.slots[0].slot, "transcript_commentary");
+    const legacy = Worker.restore(saved);
+    try {
+      expect(legacy.slots[0]!.transcript_commentary.len).toBe(0);
+    } finally {
+      legacy.stop();
+    }
   } finally {
     worker.stop();
   }

@@ -85,7 +85,26 @@ export function progress(t: Tools, value: any, live: boolean) {
               .map(b => str(b, "text"))
               .join("\n")
           : "";
-    if (prompt && !prompt.startsWith("<task-notification>")) t.prompt = new Summary(clip(prompt, 512));
+    if (prompt && !prompt.startsWith("<task-notification>")) t.ask(prompt, false);
+  }
+  // A message typed while the agent works is delivered as an attachment, not a user line.
+  const attachment = field(value, "attachment");
+  if (
+    line.type === "attachment" &&
+    str(attachment, "type") === "queued_command" &&
+    str(field(attachment, "origin"), "kind") === "human"
+  ) {
+    const queued = field(attachment, "prompt"),
+      text =
+        typeof queued === "string"
+          ? queued
+          : Array.isArray(queued)
+            ? queued
+                .filter(b => str(b, "type") === "text")
+                .map(b => str(b, "text"))
+                .join("\n")
+            : "";
+    if (text) t.ask(text, true);
   }
   if (!Array.isArray(content)) return;
   for (const block of content) {
@@ -127,7 +146,7 @@ export function progress(t: Tools, value: any, live: boolean) {
         t.finishId(
           t.key(id),
           live,
-          field(block, "is_error") === true ? "failure" : null,
+          field(block, "is_error") === true ? "failure" : "success",
           text.slice(0, 180) + (text.length > 180 ? " … " + text.slice(-120) : ""),
         );
       }

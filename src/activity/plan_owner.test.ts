@@ -15,9 +15,7 @@ const events = (from: number, to: number, kind: plan.Event["kind"] = "tool"): pl
     text: "Observed test activity",
   }));
 const seed = `BEGIN_PLAN
-mkdir /g1 active Repair document links
-set /g1 subtitle Keep saved document links usable
-mkdir /g1/e1 active Diagnose saved links
+mkdir /e1 active Diagnose saved links
 set /e1 subtitle Trace the missing saved index
 mkdir /e1/s1 active Inspect document index
 set /s1 subtitle Read saved link lookup fields
@@ -119,7 +117,7 @@ test("the complete recovery example preserves two distinct failures and the orig
   expect(roadmap.focusStep(result.state.spans)).toBe("s4");
 });
 
-test("the complete goal-switch example uses fresh global IDs and retains unrelated open errors", () => {
+test("the complete outcome-switch example uses fresh global IDs and retains unrelated open errors", () => {
   const source = input();
   source.state.through = 50;
   source.state.spans[0].to = 50;
@@ -129,8 +127,14 @@ test("the complete goal-switch example uses fresh global IDs and retains unrelat
     { state: failed, support: [], events: events(59, 60) },
     "set_owner 59..60 none",
   ).state;
-  const result = owner.apply({ state: intermediate, support: [], events: events(61, 63) }, owner.examples.switchGoal);
-  expect(result.state.nodes.filter(n => n.kind === "goal").map(n => n.id)).toEqual(["g1", "g2"]);
+  const result = owner.apply(
+    { state: intermediate, support: [], events: events(61, 63) },
+    owner.examples.switchOutcome,
+  );
+  expect(result.state.nodes.filter(n => n.kind === "episode").map(n => [n.id, n.parent])).toEqual([
+    ["e1", null],
+    ["e2", null],
+  ]);
   expect(result.state.nodes.find(n => n.id === "s4")?.bump?.state).toBe("open");
   expect(result.state.nodes.find(n => n.id === "s5")?.parent).toBe("e2");
   expect(roadmap.focusStep(result.state.spans)).toBe("s5");
@@ -141,7 +145,7 @@ test("the complete planning example leaves every TODO and ancestor planned and e
   state.through = 70;
   state.spans.push({ from: 1, to: 70, node: null, focus: false });
   const result = owner.apply({ state, support: [], events: events(71, 72, "user") }, owner.examples.planning);
-  expect(result.state.nodes).toHaveLength(4);
+  expect(result.state.nodes).toHaveLength(3);
   expect(result.state.nodes.every(n => n.state === "planned")).toBe(true);
   expect(result.patch.spans).toEqual([{ from: 71, to: 72, node: null, focus: false }]);
   expect(roadmap.focusStep(result.state.spans)).toBeNull();
@@ -183,16 +187,15 @@ test("the polling example attributes background results without changing foregro
   expect(failed.state.nodes.find(n => n.id === "s8")?.bump?.state).toBe("open");
 });
 
-test("the branch-repair example creates a sibling episode under the existing outcome", () => {
+test("the branch-repair example creates a separate top-level episode", () => {
   const source = input();
   source.state.through = 90;
   source.state.spans[0].to = 90;
   source.events = events(91, 91);
   const result = owner.apply(source, owner.examples.branchRepair);
-  expect(result.state.nodes.filter(n => n.kind === "goal").map(n => n.id)).toEqual(["g1"]);
   expect(result.state.nodes.filter(n => n.kind === "episode").map(n => [n.id, n.parent])).toEqual([
-    ["e1", "g1"],
-    ["e4", "g1"],
+    ["e1", null],
+    ["e4", null],
   ]);
   expect(result.state.nodes.find(n => n.id === "s10")?.parent).toBe("e4");
   expect(roadmap.focusStep(result.state.spans)).toBe("s10");

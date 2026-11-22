@@ -727,13 +727,7 @@ export class Card {
             return "text";
         }
       };
-    this.line(
-      row,
-      plan_view.goal(view)?.title ?? i18n.t`Long-term plan`,
-      hidden ? i18n.t`… ${hidden} earlier items` : "",
-      "title",
-      "faint",
-    );
+    this.line(row, i18n.t`Long-term plan`, hidden ? i18n.t`… ${hidden} earlier items` : "", "title", "faint");
     const used = plan_view.drawRows(view, selected.rows, this.width - 4, {
       line: (offset, label, counts, color) => {
         const y = row + 1 + offset;
