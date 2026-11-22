@@ -113,6 +113,12 @@ test("frames what a viewer asks a pane's process, whole or in pieces", () => {
   const half = filePane.requests("typed" + edit.slice(0, 9));
   expect(half.found).toEqual([]);
   expect(filePane.requests(half.rest + edit.slice(9)).found).toEqual([{ edit: 42 }]);
+  // A read can end at any byte, the first Escape too.
+  for (let cut = 1; cut < edit.length; cut++) {
+    const first = filePane.requests(edit.slice(0, cut));
+    expect(first.found).toEqual([]);
+    expect(filePane.requests(first.rest + edit.slice(cut)).found).toEqual([{ edit: 42 }]);
+  }
 });
 
 test("a viewer reads a pane's file itself and keeps its keys from the pane's process", async () => {
@@ -142,6 +148,16 @@ test("a viewer reads a pane's file itself and keeps its keys from the pane's pro
   expect(hosted.view!.reader.top).toBe(top + 1);
   hosted.mouse(65, 4, 4, false, 20);
   expect(hosted.view!.reader.top).toBe(top + 4);
+  // A drag selects the text it crosses, without the line numbers, and copies it on release.
+  text();
+  const col = hosted.view!.textColumn,
+    first = hosted.view!.reader.source.number(hosted.view!.reader.at(2, 18, true)!.row)!;
+  expect(hosted.mouse(0, col + 6, 3, false, 20)).toBeNull();
+  expect(hosted.mouse(32, col + 8, 4, false, 20)).toBeNull();
+  expect(hosted.mouse(0, col + 8, 4, true, 20)).toBe(`v${first} = ${first};\nconst v${first + 1}`);
+  // A click alone copies nothing, and Shift changes nothing.
+  expect(hosted.mouse(4, col + 6, 3, false, 20)).toBeNull();
+  expect(hosted.mouse(4, col + 6, 3, true, 20)).toBeNull();
   // A paste isn't keys. The editor and the end are the process's to do.
   expect(hosted.key("qqq", 20)).toBe("");
   expect(hosted.key("e", 20)).toBe(filePane.editRequest(hosted.view!.lineShown(20)));

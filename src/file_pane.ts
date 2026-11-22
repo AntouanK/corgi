@@ -10,7 +10,7 @@
 //! no round trip. The process stays for what belongs where the file is: it
 //! runs the editor, and ends when a viewer asks. Outside Corgi it draws itself.
 import { basename, dirname, resolve } from "node:path";
-import { Canvas } from "./canvas";
+import { Canvas, type Cell } from "./canvas";
 import * as errors from "./errors";
 import * as fileAccess from "./file_access";
 import { progressLabel, size } from "./file_peek";
@@ -223,6 +223,10 @@ export class View {
     const first = r.at(pins, h, this.code);
     return first ? r.source.number(first.row) : this.line;
   }
+  /** The pane column the file's text starts at, past its fold marks and line numbers. */
+  get textColumn(): number {
+    return this.reader.textColumn(this.code);
+  }
   /** Code pins the lines that open its blocks and folds. */
   private get code(): boolean {
     return this.reader.source.mode === "code";
@@ -305,7 +309,8 @@ export function requests(text: string): { found: ({ edit: number | null } | "qui
     found.push(m[1] === "quit" ? "quit" : { edit: m[2] ? Number(m[2]) : null });
     text = text.slice(m.index + m[0].length);
   }
-  const at = text.lastIndexOf("\x1b_");
+  // A read can end anywhere in one, after its first byte too.
+  const at = text.endsWith("\x1b") && !text.includes("\x1b_") ? text.length - 1 : text.lastIndexOf("\x1b_");
   return { found, rest: at < 0 ? "" : text.slice(at, at + 64) };
 }
 
@@ -314,6 +319,9 @@ export class Hosted {
   view: View | null = null;
   error: string | null = null;
   private closed = false;
+  /** A drag over the file's text, in the pane's cells, at the scroll it began at. */
+  private drag: { x: number; y: number; to: { x: number; y: number } | null; top: number } | null = null;
+  private painted: Canvas | null = null;
   constructor(
     readonly file: FileView,
     readonly files: fileAccess.Files,
@@ -344,20 +352,69 @@ export class Hosted {
       key = keys[typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("latin1")];
     if (key === "quit") return quit_request;
     if (key === "edit") return editRequest(view ? view.lineShown(rows) : this.file.line);
-    if (key && view) view.key(key, rows);
+    if (key && view) {
+      this.drag = null;
+      view.key(key, rows);
+    }
     return "";
   }
-  mouse(button: number, x: number, y: number, release: boolean, rows: number): void {
-    this.view?.mouse(button, x, y, release, rows);
+  /** A mouse report in the pane's cells, with or without Shift. A drag
+   * selects the text it crosses; returns that text when it ends, to copy. */
+  mouse(button: number, x: number, y: number, release: boolean, rows: number): string | null {
+    const view = this.view,
+      plain = button & ~28;
+    if (!view) return null;
+    const cell = { x: Math.max(view.textColumn, x), y: Math.min(Math.max(1, y), View.body(rows)) };
+    if (release) return this.drag?.to ? this.selected() : null;
+    if (plain === 32) {
+      if (this.drag && (this.drag.to || cell.x !== this.drag.x || cell.y !== this.drag.y)) this.drag.to = cell;
+      return null;
+    }
+    if (plain !== 35)
+      this.drag = plain === 0 && x >= view.textColumn ? { ...cell, to: null, top: view.reader.top } : null;
+    view.mouse(plain, x, y, release, rows);
+    return null;
   }
-  /** Draws the pane at `rect`; `hover` is the pane row under the pointer. */
-  draw(w: Writer, x: number, y: number, cols: number, rows: number, hover: number | null): void {
+  /** The drag's ends in reading order, while what it began over still shows. */
+  private range(): { from: { x: number; y: number }; to: { x: number; y: number } } | null {
+    const drag = this.drag;
+    if (!drag?.to || !this.view || this.view.reader.top !== drag.top) return null;
+    const forward = drag.y < drag.to.y || (drag.y === drag.to.y && drag.x <= drag.to.x);
+    return forward ? { from: drag, to: drag.to } : { from: drag.to, to: drag };
+  }
+  /** The selected cells of each row the drag crosses, as last drawn. */
+  private *crossed(): Generator<Cell[]> {
+    const range = this.range(),
+      c = this.painted;
+    if (!range || !c || !this.view) return;
+    for (let y = range.from.y; y <= range.to.y && y < c.h; y++) {
+      const row = c.cells[y],
+        from = y === range.from.y ? range.from.x : this.view.textColumn,
+        to = y === range.to.y ? range.to.x : c.w - 1;
+      // The scrollbar is no text.
+      yield row.slice(from, to + 1).filter((cell, i) => from + i < c.w - 1 || cell.ch !== "┃");
+    }
+  }
+  private selected(): string {
+    const lines = [...this.crossed()].map(cells =>
+      cells
+        .map(cell => cell.ch)
+        .join("")
+        .trimEnd(),
+    );
+    return lines.join("\n");
+  }
+  /** Draws the pane at `x`, `y`, dimmed behind a dialog; `hover` is the pane row under the pointer. */
+  draw(w: Writer, x: number, y: number, cols: number, rows: number, hover: number | null, dim = false): void {
     const c = new Canvas(x, y, cols, rows),
       colors = palette.colors,
       view = this.view;
     if (view) {
       view.hover = hover !== null && hover >= 1 && hover <= View.body(rows) ? hover - 1 : null;
       view.paint(c, cols, rows);
+      this.painted = c;
+      for (const cells of this.crossed())
+        for (const cell of cells) Object.assign(cell, { fg: colors.strong, bg: palette.selection_bg });
     } else {
       const failure = this.error;
       for (let r = 0; r < rows; r++) c.fill(r, r === 0 ? colors.surface : null);
@@ -365,6 +422,7 @@ export class Hosted {
       if (failure !== null) c.text(1, 1, i18n.t`Can't read it: ${failure}`, colors.hot, null, false, cols - 2);
       else c.text(1, 1, i18n.t`Reading…`, colors.muted, null, false, cols - 2);
     }
+    if (dim) c.fade();
     c.flush(w);
   }
   close(): void {

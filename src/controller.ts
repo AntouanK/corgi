@@ -3963,6 +3963,8 @@ export class Controller {
         this.cyclePane(false);
         break;
       case "copy-mode":
+        // A file's pane selects with the mouse; its terminal holds nothing to copy.
+        if (this.focused()?.view) break;
         this.copy_mode = true;
         this.flushPendingCopy();
         this.clearPicked();
@@ -4285,7 +4287,8 @@ export class Controller {
     if (held ? this.press_dropped : this.dropping_input) return;
     const file = this.filePane(term.id);
     if (file) {
-      file.hosted.mouse(button, x - rect.x, y - rect.y, release, rect.h);
+      const copied = file.hosted.mouse(button, x - rect.x, y - rect.y, release, rect.h);
+      if (copied) this.copyText(copied);
       this.dirty = true;
       return;
     }
@@ -9100,7 +9103,10 @@ export class Controller {
       const term = pane.terminal;
       // Once the app asks for mouse input it gets every event except
       // Shift, copy mode and the rest of a selection drag.
-      const app_mouse = term.mouseEvents() && !this.copy_mode && (button & 4) === 0 && this.selection === null;
+      // A file's pane is this viewer's own, and selects with or without Shift.
+      const app_mouse = pane.view
+        ? this.filePane(p.id) !== null
+        : term.mouseEvents() && !this.copy_mode && (button & 4) === 0 && this.selection === null;
       // Hover never moves focus. The encoder drops it unless the app
       // tracks all motion.
       if (hover) {
@@ -10554,10 +10560,11 @@ export class Controller {
         file_peek: file_card
           ? { rect: file_card.rect, draw: w => filePeek.draw(w, file_card.rect, file_card.peek, this.pointer) }
           : null,
-        file_pane: (pane, rect, w) => {
+        file_pane: (pane, rect, w, dim) => {
           const hosted = this.file_panes.get(pane),
-            at = this.pointer;
-          hosted?.draw(w, rect.x, rect.y, rect.w, rect.h, at && rect.contains(at.x, at.y) ? at.y - rect.y : null);
+            at = this.pointer,
+            hover = at && rect.contains(at.x, at.y) ? at.y - rect.y : null;
+          hosted?.draw(w, rect.x, rect.y, rect.w, rect.h, hover, dim);
           return hosted !== null;
         },
         file_link: (pane, link) => this.linkFile(link.uri, link.path === true, this.pane(pane)) !== null,
