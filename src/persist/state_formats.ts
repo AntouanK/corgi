@@ -30,7 +30,8 @@ import * as r_632fb56ecc05 from "./revisions/20261119_042325_632fb56ecc05_add_re
 import * as r_50cd70f93bfd from "./revisions/20261119_142619_50cd70f93bfd_keep_settings_only_in_config_json";
 import * as r_7f791e9ff70d from "./revisions/20261119_184045_7f791e9ff70d_store_the_prefix_as_a_key_chord";
 import * as r_08e793e2e4fa from "./revisions/20261122_195524_08e793e2e4fa_add_file_stat_read_count_scan_thumbnail_job_and_";
-import * as r_b65e8f697017 from "./revisions/20261122_224811_b65e8f697017_add_pane_view_and_a_pane_s_viewer_shown_file";
+import * as r_1047006f32d4 from "./revisions/20261122_231223_1047006f32d4_add_folder_list_find_and_open_rpcs";
+import * as r_f2775e1f9824 from "./revisions/20261123_044511_f2775e1f9824_add_pane_view_and_a_pane_s_viewer_shown_file";
 
 export const revisions = [
   r_1dfaa1773956.revision,
@@ -63,10 +64,11 @@ export const revisions = [
   r_50cd70f93bfd.revision,
   r_7f791e9ff70d.revision,
   r_08e793e2e4fa.revision,
-  r_b65e8f697017.revision,
+  r_1047006f32d4.revision,
+  r_f2775e1f9824.revision,
 ];
 export const heads = {
-  state: r_b65e8f697017.revision.id,
+  state: r_f2775e1f9824.revision.id,
   checkpoint: r_1dfaa1773956.revision.id,
   handoff: r_3a005bd21b0d.revision.id,
   workspaces: r_f4c12b1642bd.revision.id,
