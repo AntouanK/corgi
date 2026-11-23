@@ -103,21 +103,21 @@ test("the editor opens at the named line while it shows, and at the top line onc
   expect(view.lineShown(12)).not.toBe(50);
 });
 
-test("frames what a viewer asks a pane's process, whole or in pieces", () => {
+test("frames what a viewer asks a pane's process, whole or in pieces, among keys", () => {
   const edit = filePane.editRequest(42);
-  expect(filePane.requests(edit)).toEqual({ found: [{ edit: 42 }], rest: "" });
-  expect(filePane.requests("j" + filePane.editRequest(null) + filePane.quit_request)).toEqual({
-    found: [{ edit: null }, "quit"],
-    rest: "",
-  });
-  const half = filePane.requests("typed" + edit.slice(0, 9));
-  expect(half.found).toEqual([]);
-  expect(filePane.requests(half.rest + edit.slice(9)).found).toEqual([{ edit: 42 }]);
+  expect(filePane.requests(edit)).toEqual({ found: [{ edit: 42 }], other: "", rest: "" });
+  expect(
+    filePane.requests("j" + filePane.quiet_request + "k" + filePane.editRequest(null) + filePane.quit_request),
+  ).toEqual({ found: ["quiet", { edit: null }, "quit"], other: "jk", rest: "" });
+  // Keys pass, an arrow's Escape too; a lone Escape waits to see what follows.
+  expect(filePane.requests("j\x1b[Bq")).toEqual({ found: [], other: "j\x1b[Bq", rest: "" });
+  expect(filePane.requests("j\x1b")).toEqual({ found: [], other: "j", rest: "\x1b" });
   // A read can end at any byte, the first Escape too.
   for (let cut = 1; cut < edit.length; cut++) {
-    const first = filePane.requests(edit.slice(0, cut));
+    const first = filePane.requests("j" + edit.slice(0, cut));
     expect(first.found).toEqual([]);
-    expect(filePane.requests(first.rest + edit.slice(cut)).found).toEqual([{ edit: 42 }]);
+    expect(first.other).toBe("j");
+    expect(filePane.requests(first.rest + edit.slice(cut))).toEqual({ found: [{ edit: 42 }], other: "", rest: "" });
   }
 });
 
@@ -130,11 +130,13 @@ test("a viewer reads a pane's file itself and keeps its keys from the pane's pro
   const ready = new Promise<void>(resolve => (woke = resolve));
   const panes = new filePane.Panes(() => woke());
   const named = { path, line: 100, column: null };
-  panes.sync([{ id: 3, view: named }], fileAccess.here);
+  const told: number[] = [];
+  panes.sync([{ id: 3, view: named }], fileAccess.here, id => told.push(id));
   const hosted = panes.get(3)!;
-  // The same name keeps what's open.
-  panes.sync([{ id: 3, view: { ...named } }], fileAccess.here);
+  // The same name keeps what's open, and its process is told once.
+  panes.sync([{ id: 3, view: { ...named } }], fileAccess.here, id => told.push(id));
   expect(panes.get(3)).toBe(hosted);
+  expect(told).toEqual([3]);
   await ready;
   opened.push(hosted.view!.reader.source);
   const text = () => {

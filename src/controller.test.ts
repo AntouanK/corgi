@@ -4959,6 +4959,9 @@ test("a pane that names a file shows it from this viewer, and its keys scroll he
     terminal.receive(native.surface(1));
     const shown = () => s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
     expect(shown()).toContain("Reading…");
+    // Its process hears that this viewer draws the file.
+    expect(pending()).toBe(filePane.quiet_request);
+    terminal.pending.length = 0;
     const hosted = s.file_panes.get(1);
     while (!hosted.view) await Bun.sleep(1);
     expect(shown()).toContain("const v100 = 100;");
@@ -4968,6 +4971,10 @@ test("a pane that names a file shows it from this viewer, and its keys scroll he
     await mouseInput(s, `\x1b[<65;${rect.x + 5};${rect.y + 5}M`);
     expect(hosted.view.reader.top).toBe(top + 4);
     expect(pending()).toBe("");
+    // A paste is no keys.
+    await s.input(bytes("\x1b[200~q\x1b[201~"));
+    expect(pending()).toBe("");
+    expect(hosted.view.reader.top).toBe(top + 4);
     // The editor and closing are its process's.
     await s.input(bytes("e"));
     expect(pending()).toBe(filePane.editRequest(hosted.view.lineShown(rect.h)));

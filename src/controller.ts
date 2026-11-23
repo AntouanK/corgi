@@ -4276,6 +4276,8 @@ export class Controller {
     // A file's pane takes its keys here; its process hears only what it must do.
     const file = this.filePane(term.id);
     if (file) {
+      // A paste is no keys.
+      if (term.pasting()) return;
       const asked = file.hosted.key(bytes, file.rows);
       if (asked) term.send(asked);
       this.dirty = true;
@@ -4315,10 +4317,17 @@ export class Controller {
     if (!release && isHover(button) && (button & 128) === 0) term.move(report, button);
     else term.send(report);
   }
+  /** Reads the files this machine's panes name. A pane's process hears
+   * that this viewer draws its file, and stops drawing it. */
+  private syncFilePanes(): void {
+    this.file_panes.sync(this.runtime.panes, this.filesOn(this.machine).files, id =>
+      this.pane(id)?.terminal.send(filePane.quiet_request),
+    );
+  }
   /** The file shown in place of `pane`, and how tall the pane shows it. */
   private filePane(pane: number): { hosted: filePane.Hosted; rows: number } | null {
     if (!this.pane(pane)?.view) return null;
-    this.file_panes.sync(this.runtime.panes, this.filesOn(this.machine).files);
+    this.syncFilePanes();
     const hosted = this.file_panes.get(pane),
       rect = this.layoutView()
         .placements(this.area())
@@ -10562,7 +10571,7 @@ export class Controller {
     const review_width = this.sidebarView([]).panel,
       review_focused = this.keyboard === "review" && review_width > 0,
       ghost_width = this.review.ghosted ? review_width || this.ghostWidth(git_ws) : 0;
-    this.file_panes.sync(this.runtime.panes, this.filesOn(this.machine).files);
+    this.syncFilePanes();
     return render.frame(
       this.layoutView(),
       this.runtime.panes,
